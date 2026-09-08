@@ -37,6 +37,8 @@
 - [📦 オンデバイスAIモデル管理](#-オンデバイスaiモデル管理)
 - [🔇 YouTube 音声抑制＆字幕インターセプト機構](#-youtube-音声抑制字幕インターセプト機構)
 - [📱 設定画面 (完全日本語UI)](#-設定画面-完全日本語ui)
+- [🛡️ 2層ハイブリッド広告ブロックエンジン](#️-2層ハイブリッド広告ブロックエンジン-ad-blocker)
+- [🔒 セキュリティと堅牢性アーキテクチャ](#-セキュリティと堅牢性アーキテクチャ)
 - [🎨 公式アプリアイコンとブランドデザイン](#-公式アプリアイコンとブランドデザイン)
 - [📂 プロジェクト構成](#-プロジェクト構成)
 - [🛠️ ビルド＆環境構築ガイド](#️-ビルド環境構築ガイド)
@@ -202,17 +204,21 @@ sequenceDiagram
 ### 1. 音声ミュートの強制 (`enforceMute`)
 - 動画の再生中だけでなく、広告の再生開始時・終了時、解像度変更時、画質切り替え時にも音漏れが発生しないよう、以下の多重防壁を構築：
   ```javascript
-  // HTMLMediaElement プロトタイプ保護: スクリプトからの自動ミュート解除を防止
-  Object.defineProperty(HTMLMediaElement.prototype, 'volume', {
-      get: function() { return 0; },
-      set: function(val) { originalVolumeDescriptor.set.call(this, 0); }
-  });
-  Object.defineProperty(HTMLMediaElement.prototype, 'muted', {
-      get: function() { return true; },
-      set: function(val) { originalMutedDescriptor.set.call(this, true); }
-  });
+  function enforceMute(video) {
+      if (!audioSuppressionEnabled || !video) return;
+      try {
+          if (!video.muted) {
+              video.muted = true;
+          }
+          if (bridge && bridge.onAudioSuppressed) {
+              bridge.onAudioSuppressed(true);
+          }
+      } catch (e) {
+          log("Mute適用エラー: " + e.message);
+      }
+  }
   ```
-- `play`, `playing`, `volumechange`, `ratechange`, `loadedmetadata` の全メディアイベントリスナーおよび 300ms 周期の DOM ポーリングで常にミュート状態を担保。
+- `play`, `playing`, `volumechange`, `ratechange`, `loadedmetadata` の全メディアイベントリスナーおよび 250ms 周期の DOM ポーリングで常にミュート状態を担保。プレーヤーの自動再生ポリシーを阻害せず、高信頼性・低オーバーヘッドで元の英語音声を無音化します。
 
 ### 2. リアルタイム字幕インターセプト
 - YouTube Web版の各セレクター（`.ytp-caption-segment`, `.caption-window`, `.player-caption-window`）を `MutationObserver` で監視。
@@ -263,11 +269,31 @@ graph TD
 
 1. **第1層：ネットワーク層遮断 (`AdBlockEngine.kt`)**:
    - `WebViewClient.shouldInterceptRequest` において、DoubleClick、Google Syndication、各種モバイル広告ネットワーク、YouTube広告トラッキングエンドポイントをハッシュセット照合でサブミリ秒判定し、空レスポンスを返却して通信を未然に遮断します。
-   - `googlevideo.com` などの本編ストリーミングは厳格に保護し、再生不能リスクを排除。
+   - `googlevideo.com` などの本編ストリーミングは厳格に保護し、再生不能リスクを徹底排除。
 2. **第2層：プレイヤー・DOM制御 (`YouTubeScriptInjector.kt`)**:
-   - **動画広告の自動スキップ**: `.ad-showing` / `.ad-interrupting` 検知時に動画の再生位置を終端（`video.duration`）へジャンプさせ、16倍速でミリ秒単位で終了させるとともに、出現したスキップボタン（`.ytp-ad-skip-button` 等）を自動クリックします。
-   - **バナー＆プロモーション要素の非表示**: 検索結果やフィード内の広告カードを CSS インジェクションにより完全非表示化。
+   - **動画広告の自動スキップ & 誤スキップ完全防止**: 
+     - 従来の広告コンテナ判別による本編誤爆を解消。`.ad-showing` / `.ad-interrupting` クラスが実際にアクティブであり、かつ180秒以下の短尺動画である場合のみスキップ処理（終端ジャンプ＆高速再生）を実行。通常の本編動画がスキップされる事故を完全に防止します。
+     - スキップボタン（`.ytp-ad-skip-button`、`.ytp-ad-skip-button-modern`、`button[class*="skip-button"]` 等）の出現を検知次第、**ミリ秒単位で自動クリック（`.click()`）** を実行。ユーザーが手動でスキップを押す手間をゼロにします。
+   - **バナー＆プロモーション要素の非表示**: 検索結果やフィード内の広告カード、アプリ誘導バナーを CSS インジェクションにより完全非表示化。
    - **翻訳エンジン保護**: 広告再生中は字幕インターセプト処理を一時停止し、広告の英語字幕が Gemini API やローカル LLM に送られる事故を根絶。
+
+---
+
+## 🔒 セキュリティと堅牢性アーキテクチャ
+
+UniVoice Browser は、ブラウザ内部でのAI実行および外部通信を安全に行うため、徹底した防御策（Defense-in-Depth）を講じています：
+
+| セキュリティ項目 | 実装対策 | 防御効果 |
+| :--- | :--- | :--- |
+| **JavaScript Bridge 認可検証** | `UniVoiceJSInterface.kt` 内で、呼び出し元のオリジン（URL）をスレッドセーフに事前検証。 | 悪意ある外部Webページからの不正なネイティブ機能呼び出しを完全遮断 |
+| **入力サニタイズ (DoS対策)** | 受信する字幕テキスト長を `MAX_SUBTITLE_LENGTH (1000文字)` でクリッピング。 | バッファオーバーフロー、メモリ過剰消費、Gemini API 過剰課金を抑止 |
+| **ローカルファイルアクセス遮断** | `allowFileAccess = false`, `allowContentAccess = false` | サンドボックス外の端末内個人情報や設定ファイルの漏洩を防止 |
+| **混在コンテンツ (Mixed Content) 禁止** | `WebSettings.MIXED_CONTENT_NEVER_ALLOW` | 中間者攻撃（MitM）による改ざんや盗聴を排除 |
+| **不正スキーム徹底無効化** | `javascript:`, `file:`, `intent:` 等の外部アプリ遷移スキームをサニタイズ。 | ブラウザ外部の意図しないアプリ起動やXSS攻撃を防止 |
+| **HTTPS通信強制** | `network_security_config.xml` による平文通信禁止（オンプレミス開発用ローカルIPのみ限定許可）。 | 暗号化通信を保証 |
+| **非公開コンポーネント保護** | `UniVoiceSettingsActivity` 等を `android:exported="false"` に設定。 | 他アプリからの不正な設定改変をブロック |
+
+---
 
 ## 🎨 公式アプリアイコンとブランドデザイン
 
