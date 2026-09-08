@@ -24,6 +24,14 @@ class UniVoiceSettingsActivity : AppCompatActivity() {
     private lateinit var binding: ActivityUnivoiceSettingsBinding
     private lateinit var configManager: UniVoiceConfigManager
 
+    override fun attachBaseContext(newBase: android.content.Context) {
+        val locale = java.util.Locale.JAPANESE
+        java.util.Locale.setDefault(locale)
+        val config = android.content.res.Configuration(newBase.resources.configuration)
+        config.setLocale(locale)
+        super.attachBaseContext(newBase.createConfigurationContext(config))
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityUnivoiceSettingsBinding.inflate(layoutInflater)

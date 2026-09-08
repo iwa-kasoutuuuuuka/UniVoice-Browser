@@ -38,7 +38,15 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
 
     companion object {
         private const val TAG = "UniVoiceBrowserActivity"
-        private const val DEFAULT_HOMEPAGE = "https://m.youtube.com"
+        private const val DEFAULT_HOMEPAGE = "https://m.youtube.com/?hl=ja&gl=JP"
+    }
+
+    override fun attachBaseContext(newBase: android.content.Context) {
+        val locale = java.util.Locale.JAPANESE
+        java.util.Locale.setDefault(locale)
+        val config = android.content.res.Configuration(newBase.resources.configuration)
+        config.setLocale(locale)
+        super.attachBaseContext(newBase.createConfigurationContext(config))
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -53,8 +61,8 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
         setupWebView()
         observePipelineStates()
 
-        // 初期ページ読み込み
-        binding.wvBrowser.loadUrl(DEFAULT_HOMEPAGE)
+        // 初期ページ読み込み (日本語クエリ・ヘッダー付き)
+        loadInputUrl(DEFAULT_HOMEPAGE)
     }
 
     /**
@@ -115,9 +123,12 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
         val url = when {
             input.startsWith("http://") || input.startsWith("https://") -> input
             input.contains(".") && !input.contains(" ") -> "https://$input"
-            else -> "https://m.youtube.com/results?search_query=" + java.net.URLEncoder.encode(input, "UTF-8")
+            else -> "https://m.youtube.com/results?search_query=" + java.net.URLEncoder.encode(input, "UTF-8") + "&hl=ja&gl=JP"
         }
-        binding.wvBrowser.loadUrl(url)
+        val headers = mapOf(
+            "Accept-Language" to "ja,ja-JP;q=0.9,en;q=0.8"
+        )
+        binding.wvBrowser.loadUrl(url, headers)
     }
 
     /**
@@ -129,6 +140,17 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
 
         // Snapdragon 8 Gen 2 / Poco F6 Pro の GPU レイヤーアクセラレーションを明示適用
         webView.setLayerType(View.LAYER_TYPE_HARDWARE, null)
+
+        // YouTubeクッキー設定 (常に日本語ロケールと日本地域を適用)
+        try {
+            val cookieManager = android.webkit.CookieManager.getInstance()
+            cookieManager.setAcceptCookie(true)
+            cookieManager.setAcceptThirdPartyCookies(webView, true)
+            cookieManager.setCookie("https://youtube.com", "PREF=hl=ja&gl=JP; domain=.youtube.com; path=/")
+            cookieManager.setCookie("https://m.youtube.com", "PREF=hl=ja&gl=JP; domain=.youtube.com; path=/")
+        } catch (e: Exception) {
+            Log.w(TAG, "[UniVoiceBrowser] Cookie設定スキップ: ${e.message}")
+        }
 
         val settings = webView.settings
         settings.apply {
