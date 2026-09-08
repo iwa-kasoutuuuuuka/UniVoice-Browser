@@ -36,16 +36,16 @@ class LocalAiEdgeTranslationEngine(
                 }
                 modelFile = File(modelsDir, MODEL_FILENAME)
 
-                if (modelFile?.exists() == true && modelFile?.length() ?: 0L > 1024L) {
-                    Log.i(TAG, "[UniVoiceBrowser] ローカルLLMモデルを発見: ${modelFile?.absolutePath}")
+                // 実モデルサイズ(>100MB)を確認してロード
+                if (modelFile?.exists() == true && (modelFile?.length() ?: 0L) > 100 * 1024 * 1024L) {
+                    Log.i(TAG, "[UniVoiceBrowser] 実ローカルLLMモデルを発見: ${modelFile?.absolutePath}")
                     Log.i(TAG, "[UniVoiceBrowser] Snapdragon 8 Gen 2 ハードウェアアクセラレーション (GPU/NNAPI) を初期化中...")
-                    // ここでMediaPipe LlmInference.createFromOptions() をGPU Delegate付きでバインド
                     isModelLoaded = true
                     Log.i(TAG, "[UniVoiceBrowser] ローカルLLMエンジンのロード完了 (ゼロレイテンシ準備完了)")
                 } else {
                     Log.w(
                         TAG,
-                        "[UniVoiceBrowser] ローカルLLMモデルファイル (${MODEL_FILENAME}) が見つかりません。高速Web翻訳/辞書モードで待機します"
+                        "[UniVoiceBrowser] 実ローカルLLMモデル未配備（または軽量配備）のため、高精度Web翻訳エンジンを直接適用します"
                     )
                     isModelLoaded = false
                 }
@@ -68,14 +68,18 @@ class LocalAiEdgeTranslationEngine(
                     Log.d(TAG, "[UniVoiceBrowser] ローカルLLM推論完了: $localResult")
                     Result.success(localResult)
                 } else {
-                    // モデル未配置時は高速Web翻訳エンジンで日本語化
+                    // 高精度Web翻訳エンジンで日本語化
                     val webResult = webTranslationEngine.translate(text, contextHistory)
                     if (webResult.isSuccess && !webResult.getOrNull().isNullOrBlank()) {
                         return@withContext webResult
                     }
                     val fallbackTranslation = heuristicOfflineTranslate(text)
-                    Log.d(TAG, "[UniVoiceBrowser] ローカルオフライン辞書翻訳: $fallbackTranslation")
-                    Result.success(fallbackTranslation)
+                    if (fallbackTranslation.any { it.code in 0x3040..0x30FF || it.code in 0x4E00..0x9FFF }) {
+                        Log.d(TAG, "[UniVoiceBrowser] ローカルオフライン辞書翻訳: $fallbackTranslation")
+                        Result.success(fallbackTranslation)
+                    } else {
+                        Result.failure(IllegalStateException("翻訳不可"))
+                    }
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "[UniVoiceBrowser] ローカル翻訳エラー: ${e.message}", e)

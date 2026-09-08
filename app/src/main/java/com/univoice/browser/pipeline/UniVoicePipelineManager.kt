@@ -227,13 +227,20 @@ class UniVoicePipelineManager(
      * 単一字幕キューのパイプライン実行 (先読みキャッシュ確認 -> 翻訳 -> 音声合成再生)
      */
     private suspend fun processSubtitleCue(cue: UniVoiceSubtitleCue) {
-        val cleanText = cue.cleanText
+        val cleanText = cue.cleanText.trim().trimStart('.', ',', ':', ';', '!', '?', '-', ' ').trim()
         if (cleanText.isBlank()) return
 
         val settings = configManager.currentSettings
 
-        var translated = translationCache[cleanText]
-        if (translated == null) {
+        // 1. すでに日本語字幕の場合は翻訳処理をバイパスして即座に利用
+        val isAlreadyJapanese = cleanText.any { it.code in 0x3040..0x30FF || it.code in 0x4E00..0x9FFF }
+        var translated: String = if (isAlreadyJapanese) {
+            cleanText
+        } else {
+            translationCache[cleanText] ?: ""
+        }
+
+        if (translated.isBlank()) {
             _currentStatus.value = PipelineStatus.TRANSLATING
             val history = slidingWindowQueue.map { it.cleanText }
 
@@ -241,15 +248,24 @@ class UniVoicePipelineManager(
             val result = transEngine.translate(cleanText, history)
 
             translated = result.getOrElse { error ->
-                Log.w(TAG, "[UniVoiceBrowser] 翻訳エンジン警告: ${error.message}。Web翻訳/ローカル辞書フォールバックを実行")
+                Log.w(TAG, "[UniVoiceBrowser] 主系翻訳警告: ${error.message}。Web無料翻訳を実行")
                 val webRes = freeWebTranslation.translate(cleanText, history)
                 webRes.getOrElse {
-                    fallbackLocalTranslation.translate(cleanText, history).getOrDefault("動画の音声: $cleanText")
+                    fallbackLocalTranslation.translate(cleanText, history).getOrDefault("")
                 }
             }
-            translationCache[cleanText] = translated
+
+            if (translated.isNotBlank()) {
+                translationCache[cleanText] = translated
+            }
         } else {
-            Log.d(TAG, "[UniVoiceBrowser] 先読みキャッシュヒット: [$cleanText] -> [$translated]")
+            Log.d(TAG, "[UniVoiceBrowser] キャッシュまたは直接日本語ヒット: [$cleanText] -> [$translated]")
+        }
+
+        if (translated.isBlank()) {
+            Log.w(TAG, "[UniVoiceBrowser] 日本語訳が取得できなかったため再生スキップ: $cleanText")
+            _currentStatus.value = PipelineStatus.IDLE
+            return
         }
 
         cue.translatedText = translated

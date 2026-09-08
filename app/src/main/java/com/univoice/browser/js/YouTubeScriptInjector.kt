@@ -97,8 +97,11 @@ object YouTubeScriptInjector {
             function enforceMute(video) {
                 if (!audioSuppressionEnabled || !video) return;
                 try {
-                    if (!video.muted) {
-                        video.muted = true;
+                    video.muted = true;
+                    video.volume = 0;
+                    const player = document.querySelector('#movie_player, .html5-video-player');
+                    if (player && typeof player.mute === 'function' && typeof player.isMuted === 'function' && !player.isMuted()) {
+                        player.mute();
                     }
                     if (bridge && bridge.onAudioSuppressed) {
                         bridge.onAudioSuppressed(true);
@@ -108,15 +111,27 @@ object YouTubeScriptInjector {
                 }
             }
 
+            function tryAutoTranslateToJapanese() {
+                try {
+                    const player = document.querySelector('#movie_player, .html5-video-player');
+                    if (player && typeof player.setOption === 'function') {
+                        player.setOption('captions', 'track', { languageCode: 'ja' });
+                        player.setOption('captions', 'translationLanguage', { languageCode: 'ja', displayName: 'Japanese' });
+                    }
+                } catch(_e) {}
+            }
+
             function attachVideoListeners(video) {
                 if (video.__univoice_attached) return;
                 video.__univoice_attached = true;
 
                 enforceMute(video);
+                tryAutoTranslateToJapanese();
 
-                ['play', 'playing', 'volumechange', 'ratechange', 'loadedmetadata'].forEach(function(evt) {
+                ['play', 'playing', 'volumechange', 'ratechange', 'loadedmetadata', 'canplay'].forEach(function(evt) {
                     video.addEventListener(evt, function() {
                         enforceMute(video);
+                        tryAutoTranslateToJapanese();
                     }, true);
                 });
 
@@ -413,6 +428,22 @@ object YouTubeScriptInjector {
             // ==========================================
             // 4. ループ・DOMポーリングによる堅牢性確保
             // ==========================================
+            function handlePageNavigation() {
+                log("YouTube ページ遷移を検知: " + window.location.href);
+                window.__univoice_cc_clicked = false;
+                pendingCaptionText = "";
+                lastEmittedSentence = "";
+                tryAutoTranslateToJapanese();
+                const videos = document.querySelectorAll('video');
+                videos.forEach(function(v) {
+                    attachVideoListeners(v);
+                    enforceMute(v);
+                });
+            }
+
+            window.addEventListener('yt-navigate-finish', handlePageNavigation);
+            window.addEventListener('popstate', handlePageNavigation);
+
             setInterval(function() {
                 const videos = document.querySelectorAll('video');
                 videos.forEach(function(v) {
