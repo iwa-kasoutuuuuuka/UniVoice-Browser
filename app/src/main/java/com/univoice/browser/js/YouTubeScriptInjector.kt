@@ -51,7 +51,6 @@ object YouTubeScriptInjector {
                         ytm-promoted-sparkles-web-renderer,
                         ytm-promoted-video-renderer,
                         ytm-companion-ad-renderer,
-                        .ytp-ad-overlay-container,
                         .ytp-ad-message-container,
                         .ytp-ad-action-interstitial,
                         .ytp-ad-progress,
@@ -59,7 +58,6 @@ object YouTubeScriptInjector {
                         ytm-statement-banner-renderer,
                         .sparkles-light-cta,
                         .promoted-item,
-                        .ytp-ad-preview-container,
                         .open-in-app,
                         ytm-open-app-tool-bar-renderer {
                             display: none !important;
@@ -86,6 +84,7 @@ object YouTubeScriptInjector {
                 videos.forEach(function(v) {
                     if (audioSuppressionEnabled) {
                         v.muted = true;
+                        v.volume = 0;
                     } else {
                         v.muted = false;
                         v.volume = 1.0;
@@ -97,18 +96,13 @@ object YouTubeScriptInjector {
             function enforceMute(video) {
                 if (!audioSuppressionEnabled || !video) return;
                 try {
-                    video.muted = true;
-                    video.volume = 0;
-                    const player = document.querySelector('#movie_player, .html5-video-player');
-                    if (player && typeof player.mute === 'function' && typeof player.isMuted === 'function' && !player.isMuted()) {
-                        player.mute();
+                    if (!video.muted) {
+                        video.muted = true;
                     }
-                    if (bridge && bridge.onAudioSuppressed) {
-                        bridge.onAudioSuppressed(true);
+                    if (video.volume > 0) {
+                        video.volume = 0;
                     }
-                } catch (e) {
-                    log("Mute適用エラー: " + e.message);
-                }
+                } catch (e) {}
             }
 
             function tryAutoTranslateToJapanese() {
@@ -121,19 +115,52 @@ object YouTubeScriptInjector {
                 } catch(_e) {}
             }
 
+            // 外部（ネイティブトップバー等）から呼び出し可能な操作ヘルパー
+            window.__univoice_toggle_play_pause = function() {
+                try {
+                    const video = document.querySelector('video');
+                    if (video) {
+                        if (video.paused) {
+                            video.play();
+                        } else {
+                            video.pause();
+                        }
+                    }
+                } catch(e) {
+                    log("再生切替例外: " + e.message);
+                }
+            };
+
+            window.__univoice_toggle_cc = function() {
+                try {
+                    const player = document.querySelector('#movie_player, .html5-video-player');
+                    if (player && typeof player.toggleSubtitles === 'function') {
+                        player.toggleSubtitles();
+                    } else if (player && typeof player.toggleSubtitlesOn === 'function') {
+                        player.toggleSubtitlesOn();
+                    } else {
+                        const btn = document.querySelector('.ytp-subtitles-button, button[aria-label*="字幕"], button[aria-label*="Captions"], ytm-custom-control[aria-label*="字幕"]');
+                        if (btn) btn.click();
+                    }
+                } catch(e) {
+                    log("CC切替例外: " + e.message);
+                }
+            };
+
             function attachVideoListeners(video) {
                 if (video.__univoice_attached) return;
                 video.__univoice_attached = true;
 
                 enforceMute(video);
-                tryAutoTranslateToJapanese();
 
-                ['play', 'playing', 'volumechange', 'ratechange', 'loadedmetadata', 'canplay'].forEach(function(evt) {
-                    video.addEventListener(evt, function() {
-                        enforceMute(video);
-                        tryAutoTranslateToJapanese();
-                    }, true);
-                });
+                video.addEventListener('play', function() {
+                    enforceMute(video);
+                    tryAutoTranslateToJapanese();
+                }, false);
+
+                video.addEventListener('volumechange', function() {
+                    enforceMute(video);
+                }, false);
 
                 video.addEventListener('timeupdate', function() {
                     if (bridge && bridge.onVideoStateChanged) {
@@ -143,7 +170,7 @@ object YouTubeScriptInjector {
                     }
                 }, false);
 
-                log("対象Video要素へのフック完了");
+                log("対象Video要素へのフック完了 (タッチ透過保護適用)");
             }
 
             // ==========================================
@@ -352,68 +379,57 @@ object YouTubeScriptInjector {
                 log("字幕MutationObserver設定完了 (文単位デバウンス＆重複除去適用)");
             }
 
-            // YouTubeの字幕ボタンを自動有効化（未ONの場合）＆状態通知
+            // YouTubeの字幕状態の監視＆ネイティブ通知（ユーザー操作やタッチイベントを阻害しない受動的チェック）
             let lastReportedCaptionState = null;
-            function ensureCaptionsEnabled() {
-                try {
-                    // 1. YouTube HTML5 プレーヤーオブジェクトの字幕API確認
-                    const player = document.querySelector('#movie_player, .html5-video-player');
-                    if (player && typeof player.toggleSubtitlesOn === 'function') {
-                        const track = player.getOption ? player.getOption('captions', 'track') : null;
-                        if (!track) {
-                            player.toggleSubtitlesOn();
-                            log("YouTubeプレーヤーAPIで字幕をONにしました");
-                        }
-                    }
+            let autoCcAttemptedForVideo = false;
 
-                    // 2. モバイル/デスクトップ YouTube の字幕ボタン走査
+            function checkCaptionState() {
+                try {
+                    // 画面内に字幕セグメントが表示されているか確認
+                    const activeSegments = document.querySelectorAll('.ytp-caption-segment, .caption-window, .player-caption-window');
+                    let isCcActive = (activeSegments && activeSegments.length > 0);
+
                     const ccSelectors = [
                         '.ytp-subtitles-button',
                         'button[aria-label*="字幕"]',
                         'button[aria-label*="Captions"]',
                         'button[aria-label*="Subtitles"]',
-                        '.ytp-chrome-top-buttons [aria-label*="字幕"]',
                         'ytm-custom-control[aria-label*="字幕"]'
                     ];
 
-                    let isCcActive = false;
                     let foundButton = null;
-
                     for (let i = 0; i < ccSelectors.length; i++) {
                         const btn = document.querySelector(ccSelectors[i]);
                         if (btn) {
                             foundButton = btn;
                             const pressed = btn.getAttribute('aria-pressed');
                             const label = (btn.getAttribute('aria-label') || '').toLowerCase();
-                            
-                            // aria-pressed="true" またはラベルに「オフにする」が含まれていれば現在ON
                             if (pressed === 'true' || label.indexOf('オフ') !== -1 || label.indexOf('turn off') !== -1) {
                                 isCcActive = true;
-                                break;
-                            } else if (pressed === 'false' || label.indexOf('オン') !== -1 || label.indexOf('turn on') !== -1) {
-                                isCcActive = false;
                                 break;
                             }
                         }
                     }
 
-                    // 画面内に字幕セグメントが表示されている場合は確実にON
-                    const activeSegments = document.querySelectorAll('.ytp-caption-segment, .caption-window, .player-caption-window');
-                    if (activeSegments && activeSegments.length > 0) {
-                        isCcActive = true;
-                    }
-
-                    // OFFと判明しており、かつボタンが存在する場合は1度だけクリックして有効化
-                    if (!isCcActive && foundButton && typeof foundButton.click === 'function') {
-                        if (!window.__univoice_cc_clicked) {
-                            window.__univoice_cc_clicked = true;
-                            foundButton.click();
-                            log("YouTube字幕(CC)ボタンを自動クリックして有効化しました");
-                            isCcActive = true;
+                    // 初回動画再生時に未ONなら1度だけONを試行（ユーザーのタッチや画面操作を奪わない）
+                    if (!isCcActive && !autoCcAttemptedForVideo) {
+                        const video = document.querySelector('video');
+                        if (video && !video.paused) {
+                            autoCcAttemptedForVideo = true;
+                            if (foundButton && typeof foundButton.click === 'function') {
+                                foundButton.click();
+                                isCcActive = true;
+                            } else {
+                                const player = document.querySelector('#movie_player, .html5-video-player');
+                                if (player && typeof player.toggleSubtitlesOn === 'function') {
+                                    player.toggleSubtitlesOn();
+                                    isCcActive = true;
+                                }
+                            }
+                            tryAutoTranslateToJapanese();
                         }
                     }
 
-                    // ネイティブ側への字幕有効状態の通知（状態変化時のみ）
                     if (lastReportedCaptionState !== isCcActive) {
                         lastReportedCaptionState = isCcActive;
                         if (bridge && bridge.onCaptionStateChanged) {
@@ -421,7 +437,7 @@ object YouTubeScriptInjector {
                         }
                     }
                 } catch(e) {
-                    log("字幕ボタン処理試行例外: " + e.message);
+                    // silent
                 }
             }
 
@@ -430,7 +446,8 @@ object YouTubeScriptInjector {
             // ==========================================
             function handlePageNavigation() {
                 log("YouTube ページ遷移を検知: " + window.location.href);
-                window.__univoice_cc_clicked = false;
+                autoCcAttemptedForVideo = false;
+                lastReportedCaptionState = null;
                 pendingCaptionText = "";
                 lastEmittedSentence = "";
                 tryAutoTranslateToJapanese();
@@ -451,8 +468,8 @@ object YouTubeScriptInjector {
                     enforceMute(v);
                 });
                 handleVideoAds();
-                ensureCaptionsEnabled();
-            }, 250);
+                checkCaptionState();
+            }, 1000);
 
             observeCaptions();
             log("UniVoice JavaScript 初期化完了");

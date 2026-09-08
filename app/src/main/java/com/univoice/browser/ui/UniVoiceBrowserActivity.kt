@@ -117,6 +117,16 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
             enterPipMode()
         }
 
+        // トップバーからの直接再生/一時停止コントロール
+        binding.btnPlayPause.setOnClickListener {
+            binding.wvBrowser.evaluateJavascript("window.__univoice_toggle_play_pause && window.__univoice_toggle_play_pause();", null)
+        }
+
+        // トップバーからの直接字幕(CC)ON/OFFトグル
+        binding.btnToggleCc.setOnClickListener {
+            binding.wvBrowser.evaluateJavascript("window.__univoice_toggle_cc && window.__univoice_toggle_cc();", null)
+        }
+
         binding.btnSettings.setOnClickListener {
             startActivity(Intent(this, UniVoiceSettingsActivity::class.java))
         }
@@ -180,6 +190,8 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
 
         // Snapdragon 8 Gen 2 / Poco F6 Pro の GPU レイヤーアクセラレーションを明示適用
         webView.setLayerType(View.LAYER_TYPE_HARDWARE, null)
+        webView.isFocusable = true
+        webView.isFocusableInTouchMode = true
 
         // YouTubeクッキー設定 (常に日本語ロケールと日本地域を適用)
         try {
@@ -205,9 +217,12 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
             cacheMode = WebSettings.LOAD_DEFAULT
             useWideViewPort = true
             loadWithOverviewMode = true
-            builtInZoomControls = true
+            // タップ操作をZoomManagerに奪われないようズーム制御を無効化
+            builtInZoomControls = false
             displayZoomControls = false
-            userAgentString = settings.userAgentString.replace("wv", "") // フルWebブラウザ識別
+            setSupportZoom(false)
+            // モバイル版Chrome最新UAを明示指定 (WebView特有のVersion/4.0識別子を排除してYouTubeプレーヤーのフル操作を解放)
+            userAgentString = "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"
         }
 
         // JavaScript ブリッジの登録 (オリジン検証用コールバックを注入: UIスレッド外からのWebViewアクセスを回避)
@@ -217,6 +232,11 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
                 pipelineManager.onSubtitleReceived(cue)
             },
             onVideoStateChangedCallback = { isPlaying, currentTimeMs ->
+                runOnUiThread {
+                    binding.btnPlayPause.setImageResource(
+                        if (isPlaying) R.drawable.ic_pause else R.drawable.ic_play_arrow
+                    )
+                }
                 if (!isPlaying) {
                     pipelineManager.stopAudio()
                 }
@@ -225,6 +245,9 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
                 Log.d(TAG, "[UniVoiceBrowser] ネイティブ音声抑制確認: $isSuppressed")
             },
             onCaptionStateChangedCallback = { isEnabled ->
+                runOnUiThread {
+                    binding.btnToggleCc.alpha = if (isEnabled) 1.0f else 0.5f
+                }
                 pipelineManager.onCaptionStateChanged(isEnabled)
             }
         )
