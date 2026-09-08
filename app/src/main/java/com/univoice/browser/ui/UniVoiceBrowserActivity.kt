@@ -13,6 +13,8 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.content.pm.ActivityInfo
+import android.widget.FrameLayout
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
@@ -35,6 +37,11 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
     private lateinit var binding: ActivityUnivoiceBrowserBinding
     private lateinit var configManager: UniVoiceConfigManager
     private lateinit var pipelineManager: UniVoicePipelineManager
+
+    // HTML5 全画面（最大化）再生管理
+    private var customView: View? = null
+    private var customViewCallback: WebChromeClient.CustomViewCallback? = null
+    private var originalOrientation: Int = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
 
     companion object {
         private const val TAG = "UniVoiceBrowserActivity"
@@ -125,6 +132,15 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
         // トップバーからの直接字幕(CC)ON/OFFトグル
         binding.btnToggleCc.setOnClickListener {
             binding.wvBrowser.evaluateJavascript("window.__univoice_toggle_cc && window.__univoice_toggle_cc();", null)
+        }
+
+        // トップバーからの直接全画面（最大化）トグル
+        binding.btnFullscreen.setOnClickListener {
+            if (customView != null) {
+                hideCustomView()
+            } else {
+                binding.wvBrowser.evaluateJavascript("window.__univoice_toggle_fullscreen && window.__univoice_toggle_fullscreen();", null)
+            }
         }
 
         binding.btnSettings.setOnClickListener {
@@ -221,6 +237,7 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
             builtInZoomControls = false
             displayZoomControls = false
             setSupportZoom(false)
+            javaScriptCanOpenWindowsAutomatically = true
             // モバイル版Chrome最新UAを明示指定 (WebView特有のVersion/4.0識別子を排除してYouTubeプレーヤーのフル操作を解放)
             userAgentString = "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"
         }
@@ -272,9 +289,11 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
 
             override fun doUpdateVisitedHistory(view: WebView?, url: String?, isReload: Boolean) {
                 super.doUpdateVisitedHistory(view, url, isReload)
-                url?.let { currentLoadedUrl = it }
-                // YouTube SPA (Single Page Application) の画面遷移時にも再注入
-                checkAndInjectYouTubeScripts(url)
+                url?.let {
+                    currentLoadedUrl = it
+                    binding.etUrl.setText(it)
+                    checkAndInjectYouTubeScripts(it)
+                }
             }
 
             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
@@ -321,6 +340,16 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
                 if (newProgress == 100) {
                     binding.progressBar.visibility = View.GONE
                 }
+            }
+
+            override fun onShowCustomView(view: View?, callback: CustomViewCallback?) {
+                if (view != null) {
+                    showCustomView(view, callback)
+                }
+            }
+
+            override fun onHideCustomView() {
+                hideCustomView()
             }
         }
     }
@@ -433,7 +462,95 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
         binding.cardSubtitleOverlay.layoutParams = cardLayoutParams
     }
 
+    /**
+     * HTML5 動画の全画面（最大化）表示ハンドリング
+     */
+    private fun showCustomView(view: View, callback: WebChromeClient.CustomViewCallback?) {
+        if (customView != null) {
+            hideCustomView()
+            return
+        }
+
+        customView = view
+        customViewCallback = callback
+        originalOrientation = requestedOrientation
+
+        binding.layoutNavBar.visibility = View.GONE
+        binding.progressBar.visibility = View.GONE
+        binding.wvBrowser.visibility = View.GONE
+
+        binding.fullscreenContainer.apply {
+            removeAllViews()
+            addView(
+                view,
+                FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT
+                )
+            )
+            visibility = View.VISIBLE
+        }
+
+        binding.cardSubtitleOverlay.bringToFront()
+        binding.btnFullscreen.setImageResource(R.drawable.ic_fullscreen_exit)
+        setFullscreenImmersive(true)
+
+        Log.i(TAG, "[UniVoiceBrowser] YouTube動画の最大化（全画面表示）を開始しました")
+    }
+
+    private fun hideCustomView() {
+        if (customView == null) return
+
+        binding.fullscreenContainer.apply {
+            removeView(customView)
+            visibility = View.GONE
+        }
+
+        binding.wvBrowser.visibility = View.VISIBLE
+        binding.layoutNavBar.visibility = View.VISIBLE
+
+        setFullscreenImmersive(false)
+        binding.btnFullscreen.setImageResource(R.drawable.ic_fullscreen)
+
+        customViewCallback?.onCustomViewHidden()
+        customView = null
+        customViewCallback = null
+        requestedOrientation = originalOrientation
+
+        Log.i(TAG, "[UniVoiceBrowser] YouTube動画の最大化を解除しました")
+    }
+
+    private fun setFullscreenImmersive(fullscreen: Boolean) {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+            val controller = window.insetsController
+            if (controller != null) {
+                if (fullscreen) {
+                    controller.hide(android.view.WindowInsets.Type.statusBars() or android.view.WindowInsets.Type.navigationBars())
+                    controller.systemBarsBehavior = android.view.WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                } else {
+                    controller.show(android.view.WindowInsets.Type.statusBars() or android.view.WindowInsets.Type.navigationBars())
+                }
+            }
+        } else {
+            @Suppress("DEPRECATION")
+            window.decorView.systemUiVisibility = if (fullscreen) {
+                (android.view.View.SYSTEM_UI_FLAG_FULLSCREEN
+                        or android.view.View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                        or android.view.View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                        or android.view.View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                        or android.view.View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                        or android.view.View.SYSTEM_UI_FLAG_LAYOUT_STABLE)
+            } else {
+                android.view.View.SYSTEM_UI_FLAG_VISIBLE
+            }
+        }
+    }
+
     override fun onBackPressed() {
+        if (customView != null) {
+            hideCustomView()
+            return
+        }
         if (binding.wvBrowser.canGoBack()) {
             binding.wvBrowser.goBack()
         } else {
@@ -493,6 +610,7 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        hideCustomView()
         super.onDestroy()
         pipelineManager.release()
         binding.wvBrowser.destroy()

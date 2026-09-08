@@ -139,6 +139,15 @@
                 android:contentDescription="小窓再生 (PiP)"
                 android:src="@drawable/ic_pip" />
 
+            <!-- 全画面 / 最大化ボタン -->
+            <ImageButton
+                android:id="@+id/btnFullscreen"
+                android:layout_width="38dp"
+                android:layout_height="38dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="全画面表示 (最大化)"
+                android:src="@drawable/ic_fullscreen" />
+
             <!-- 設定ボタン -->
             <ImageButton
                 android:id="@+id/btnSettings"
@@ -169,6 +178,18 @@
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@id/progressBar" />
+
+    <!-- フルスクリーン動画表示用コンテナ (HTML5 動画全画面・最大化時) -->
+    <FrameLayout
+        android:id="@+id/fullscreenContainer"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@android:color/black"
+        android:visibility="gone"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent" />
 
     <!-- フローティング 字幕＆ステータス オーバーレイ -->
     <androidx.cardview.widget.CardView

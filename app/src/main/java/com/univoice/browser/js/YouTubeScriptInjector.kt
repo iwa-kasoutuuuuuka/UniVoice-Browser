@@ -65,6 +65,11 @@ object YouTubeScriptInjector {
                             height: 0 !important;
                             pointer-events: none !important;
                         }
+                        .caption-window,
+                        .player-caption-window,
+                        .ytp-caption-window-container {
+                            pointer-events: none !important;
+                        }
                     `;
                     (document.head || document.documentElement).appendChild(style);
                     log("広告ブロック用 CSS を注入しました");
@@ -72,6 +77,16 @@ object YouTubeScriptInjector {
                     log("広告ブロック CSS 注入エラー: " + e.message);
                 }
             }
+
+            // 全画面APIのフォールバック・保証
+            try {
+                if (!document.fullscreenEnabled) {
+                    Object.defineProperty(document, 'fullscreenEnabled', {
+                        get: function() { return true; },
+                        configurable: true
+                    });
+                }
+            } catch(_e) {}
 
             // ==========================================
             // 1. HTML5 <video> 音声の完全抑制 (Mute Enforcement)
@@ -144,6 +159,35 @@ object YouTubeScriptInjector {
                     }
                 } catch(e) {
                     log("CC切替例外: " + e.message);
+                }
+            };
+
+            window.__univoice_toggle_fullscreen = function() {
+                try {
+                    const player = document.querySelector('#movie_player, .html5-video-player');
+                    if (player && typeof player.toggleFullscreen === 'function') {
+                        player.toggleFullscreen();
+                        return;
+                    }
+                    const btn = document.querySelector('.ytp-fullscreen-button, button[aria-label*="全画面"], button[aria-label*="フルスクリーン"], button[aria-label*="Fullscreen"], .fullscreen-icon');
+                    if (btn && typeof btn.click === 'function') {
+                        btn.click();
+                        return;
+                    }
+                    const video = document.querySelector('video');
+                    if (video) {
+                        if (document.fullscreenElement) {
+                            if (document.exitFullscreen) document.exitFullscreen();
+                        } else {
+                            if (video.requestFullscreen) {
+                                video.requestFullscreen();
+                            } else if (video.webkitRequestFullscreen) {
+                                video.webkitRequestFullscreen();
+                            }
+                        }
+                    }
+                } catch(e) {
+                    log("全画面切替例外: " + e.message);
                 }
             };
 
