@@ -90,8 +90,10 @@ class AndroidSystemTtsEngine(private val context: Context) : TtsEngine {
             }
 
             try {
-                tts?.setSpeechRate(speed.coerceIn(0.5f, 2.0f))
-                tts?.setPitch(pitch.coerceIn(0.5f, 2.0f))
+                val appliedSpeed = speed.coerceIn(0.5f, 2.5f)
+                val appliedPitch = pitch.coerceIn(0.5f, 2.0f)
+                tts?.setSpeechRate(appliedSpeed)
+                tts?.setPitch(appliedPitch)
 
                 val utteranceId = "univoice_${System.currentTimeMillis()}"
                 val params = Bundle().apply {
@@ -102,14 +104,14 @@ class AndroidSystemTtsEngine(private val context: Context) : TtsEngine {
 
                 val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager
                 val currentVol = audioManager?.getStreamVolume(android.media.AudioManager.STREAM_MUSIC) ?: -1
-                Log.d(TAG, "[UniVoiceBrowser] 標準TTS発話開始 (音量=$currentVol): $text")
+                Log.d(TAG, "[UniVoiceBrowser] 標準TTS発話開始 (速度=${appliedSpeed}倍, 音量=$currentVol): $text")
 
                 val playDeferred = CompletableDeferred<Unit>()
                 currentDeferred = playDeferred
 
                 tts?.speak(text, TextToSpeech.QUEUE_FLUSH, params, utteranceId)
 
-                val timeoutMs = ((text.length * 220L / speed.coerceAtLeast(0.5f)).toLong() + 1500L).coerceIn(1000L, 9000L)
+                val timeoutMs = ((text.length * 220L / appliedSpeed).toLong() + 1500L).coerceIn(800L, 9000L)
                 try {
                     kotlinx.coroutines.withTimeoutOrNull(timeoutMs) {
                         playDeferred.await()

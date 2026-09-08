@@ -482,10 +482,21 @@
                         android:stepSize="0.1"
                         android:value="1.0"
                         android:valueFrom="0.5"
-                        android:valueTo="2.0"
+                        android:valueTo="2.5"
                         app:thumbColor="@color/primary"
                         app:trackColorActive="@color/primary"
                         app:trackColorInactive="@color/surface_variant" />
+
+                    <!-- 速度試聴テストボタン -->
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnTestSpeechSpeed"
+                        style="@style/Widget.Material3.Button.OutlinedButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:text="🔊 この速度で試聴する"
+                        android:textColor="@color/primary"
+                        app:strokeColor="@color/primary" />
 
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>

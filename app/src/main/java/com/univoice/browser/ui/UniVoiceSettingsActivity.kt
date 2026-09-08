@@ -92,6 +92,21 @@ class UniVoiceSettingsActivity : AppCompatActivity() {
         binding.sliderTtsSpeed.addOnChangeListener { _, value, _ ->
             binding.tvTtsSpeedLabel.text = getString(R.string.label_tts_speed, value)
         }
+
+        // 速度試聴テスト
+        binding.btnTestSpeechSpeed.setOnClickListener {
+            val speed = binding.sliderTtsSpeed.value
+            lifecycleScope.launch {
+                binding.btnTestSpeechSpeed.isEnabled = false
+                try {
+                    val tts = com.univoice.browser.tts.AndroidSystemTtsEngine(this@UniVoiceSettingsActivity)
+                    tts.initialize()
+                    tts.synthesizeAndPlay("UniVoice Browserです。現在の発話速度は${String.format("%.1f", speed)}倍です。", speed = speed)
+                } catch (_: Exception) {} finally {
+                    binding.btnTestSpeechSpeed.isEnabled = true
+                }
+            }
+        }
     }
 
     /**
@@ -219,7 +234,7 @@ class UniVoiceSettingsActivity : AppCompatActivity() {
         binding.switchHardwareAccel.isChecked = settings.hardwareAcceleration
         binding.switchAudioSuppression.isChecked = settings.audioSuppressionEnabled
         binding.switchAdBlock.isChecked = settings.adBlockEnabled
-        binding.sliderTtsSpeed.value = settings.speechSpeed.coerceIn(0.5f, 2.0f)
+        binding.sliderTtsSpeed.value = settings.speechSpeed.coerceIn(0.5f, 2.5f)
         binding.tvTtsSpeedLabel.text = getString(R.string.label_tts_speed, settings.speechSpeed)
     }
 
