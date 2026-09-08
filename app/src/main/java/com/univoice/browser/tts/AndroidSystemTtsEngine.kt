@@ -27,6 +27,8 @@ class AndroidSystemTtsEngine(private val context: Context) : TtsEngine {
     private var isInitialized = false
     private var initDeferred: CompletableDeferred<Boolean>? = null
 
+    private var currentDeferred: CompletableDeferred<Unit>? = null
+
     override suspend fun initialize(): Boolean {
         if (isInitialized && tts != null) return true
         return withContext(Dispatchers.Main) {
@@ -50,6 +52,19 @@ class AndroidSystemTtsEngine(private val context: Context) : TtsEngine {
                             .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SPEECH)
                             .build()
                         tts?.setAudioAttributes(audioAttributes)
+                        tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                            override fun onStart(utteranceId: String?) {}
+                            override fun onDone(utteranceId: String?) {
+                                currentDeferred?.complete(Unit)
+                            }
+                            @Deprecated("Deprecated in Java")
+                            override fun onError(utteranceId: String?) {
+                                currentDeferred?.complete(Unit)
+                            }
+                            override fun onError(utteranceId: String?, errorCode: Int) {
+                                currentDeferred?.complete(Unit)
+                            }
+                        })
                         isInitialized = true
                         deferred.complete(true)
                     } else {
@@ -82,13 +97,25 @@ class AndroidSystemTtsEngine(private val context: Context) : TtsEngine {
                 val params = Bundle().apply {
                     putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, 1.0f)
                     putInt(TextToSpeech.Engine.KEY_PARAM_STREAM, android.media.AudioManager.STREAM_MUSIC)
+                    putString(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, utteranceId)
                 }
 
                 val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager
                 val currentVol = audioManager?.getStreamVolume(android.media.AudioManager.STREAM_MUSIC) ?: -1
                 Log.d(TAG, "[UniVoiceBrowser] 標準TTS発話開始 (音量=$currentVol): $text")
 
+                val playDeferred = CompletableDeferred<Unit>()
+                currentDeferred = playDeferred
+
                 tts?.speak(text, TextToSpeech.QUEUE_FLUSH, params, utteranceId)
+
+                val timeoutMs = ((text.length * 220L / speed.coerceAtLeast(0.5f)).toLong() + 1500L).coerceIn(1000L, 9000L)
+                try {
+                    kotlinx.coroutines.withTimeoutOrNull(timeoutMs) {
+                        playDeferred.await()
+                    }
+                } catch (_: Exception) {}
+
                 Result.success(Unit)
             } catch (e: Exception) {
                 Log.e(TAG, "[UniVoiceBrowser] 標準TTS発話例外: ${e.message}", e)
@@ -99,6 +126,8 @@ class AndroidSystemTtsEngine(private val context: Context) : TtsEngine {
 
     override fun stop() {
         try {
+            currentDeferred?.complete(Unit)
+            currentDeferred = null
             tts?.stop()
         } catch (e: Exception) {
             Log.e(TAG, "[UniVoiceBrowser] 標準TTS停止エラー: ${e.message}", e)
@@ -107,7 +136,7 @@ class AndroidSystemTtsEngine(private val context: Context) : TtsEngine {
 
     override fun release() {
         try {
-            tts?.stop()
+            stop()
             tts?.shutdown()
             tts = null
             isInitialized = false

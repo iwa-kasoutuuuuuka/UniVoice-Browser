@@ -34,6 +34,7 @@ class CloudEdgeTtsEngine(
         .build()
 
     private var mediaPlayer: MediaPlayer? = null
+    private var currentCompletionDeferred: kotlinx.coroutines.CompletableDeferred<Unit>? = null
     private val fallbackSystemTts = AndroidSystemTtsEngine(context)
 
     override suspend fun initialize(): Boolean {
@@ -69,24 +70,50 @@ class CloudEdgeTtsEngine(
                 val tempFile = File(context.cacheDir, "temp_tts_${System.currentTimeMillis()}.mp3")
                 FileOutputStream(tempFile).use { it.write(audioBytes) }
 
+                val deferred = kotlinx.coroutines.CompletableDeferred<Unit>()
+                var durationMs = 2500
+
                 withContext(Dispatchers.Main) {
                     stop()
+                    currentCompletionDeferred = deferred
                     mediaPlayer = MediaPlayer().apply {
+                        val audioAttributes = android.media.AudioAttributes.Builder()
+                            .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
+                            .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SPEECH)
+                            .build()
+                        setAudioAttributes(audioAttributes)
+                        setVolume(1.0f, 1.0f)
                         setDataSource(tempFile.absolutePath)
                         setOnCompletionListener {
                             tempFile.delete()
+                            deferred.complete(Unit)
                         }
                         setOnErrorListener { _, what, extra ->
                             Log.e(TAG, "[UniVoiceBrowser] MediaPlayerエラー: what=$what, extra=$extra")
                             tempFile.delete()
+                            deferred.complete(Unit)
                             true
                         }
                         prepare()
+                        durationMs = duration
+                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                            try {
+                                playbackParams = playbackParams.setSpeed(speed.coerceIn(0.75f, 1.75f))
+                            } catch (_: Exception) {}
+                        }
                         start()
                     }
                 }
 
-                Log.d(TAG, "[UniVoiceBrowser] クラウドEdge TTSストリーミング再生開始: $text")
+                Log.d(TAG, "[UniVoiceBrowser] クラウドEdge TTSストリーミング再生開始 ($durationMs ms): $text")
+                // 発話の完了を待機（最大でも duration / speed + 400ms でタイムアウトして次の文へ安全に移行）
+                val adjustedTimeout = ((durationMs / speed.coerceAtLeast(0.5f)).toLong() + 400L).coerceIn(800L, 10000L)
+                try {
+                    kotlinx.coroutines.withTimeoutOrNull(adjustedTimeout) {
+                        deferred.await()
+                    }
+                } catch (_: Exception) {}
+
                 Result.success(Unit)
             } catch (e: Exception) {
                 Log.e(TAG, "[UniVoiceBrowser] クラウドTTS例外: ${e.message}。フォールバックを実行します", e)
@@ -97,12 +124,19 @@ class CloudEdgeTtsEngine(
 
     override fun stop() {
         try {
-            mediaPlayer?.stop()
-            mediaPlayer?.release()
+            currentCompletionDeferred?.complete(Unit)
+            currentCompletionDeferred = null
+            mediaPlayer?.apply {
+                if (isPlaying) {
+                    stop()
+                }
+                reset()
+                release()
+            }
             mediaPlayer = null
             fallbackSystemTts.stop()
         } catch (e: Exception) {
-            Log.e(TAG, "[UniVoiceBrowser] クラウドTTS停止エラー: ${e.message}", e)
+            Log.w(TAG, "[UniVoiceBrowser] クラウドTTS停止警告: ${e.message}")
         }
     }
 

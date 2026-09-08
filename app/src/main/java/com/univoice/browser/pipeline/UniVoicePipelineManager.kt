@@ -70,8 +70,9 @@ class UniVoicePipelineManager(
     private val _prefetchedCountFlow = MutableStateFlow(0)
     val prefetchedCountFlow: StateFlow<Int> = _prefetchedCountFlow.asStateFlow()
 
-    // 予備用システムTTS (モデル未配置またはAPIエラー時の即時フォールバック)
+    // 予備用システムTTS & クラウドTTS (モデル未配置またはAPIエラー時の即時フォールバック)
     private val fallbackSystemTts = com.univoice.browser.tts.AndroidSystemTtsEngine(context)
+    private val cloudEdgeTts = com.univoice.browser.tts.CloudEdgeTtsEngine(context)
     private val fallbackLocalTranslation = com.univoice.browser.translation.LocalAiEdgeTranslationEngine(context)
     private val freeWebTranslation = com.univoice.browser.translation.FreeWebTranslationEngine()
 
@@ -85,10 +86,11 @@ class UniVoicePipelineManager(
     private var workerJob: Job? = null
 
     init {
-        // フォールバック用システムTTSの事前ウォームアップ
+        // フォールバック用TTSの事前ウォームアップ
         pipelineScope.launch(Dispatchers.Main) {
             try {
                 fallbackSystemTts.initialize()
+                cloudEdgeTts.initialize()
             } catch (e: Exception) {
                 Log.w(TAG, "[UniVoiceBrowser] フォールバックTTS初期化待機: ${e.message}")
             }
@@ -145,7 +147,9 @@ class UniVoicePipelineManager(
 
         // TTSエンジンの選定
         val targetTtsType = settings.effectiveTtsEngine
-        ttsEngine?.release()
+        if (ttsEngine !== fallbackSystemTts && ttsEngine !== cloudEdgeTts) {
+            ttsEngine?.release()
+        }
         ttsEngine = when (targetTtsType) {
             TtsEngineType.LOCAL_VOICEVOX_ONNX -> {
                 val modelMgr = com.univoice.browser.modelmgr.ModelDownloadManager.getInstance(context)
@@ -155,11 +159,11 @@ class UniVoicePipelineManager(
                         hardwareAcceleration = settings.hardwareAcceleration
                     )
                 } else {
-                    Log.i(TAG, "[UniVoiceBrowser] VOICEVOXモデル未配備のため、標準TTSエンジンで即時再生します")
-                    fallbackSystemTts
+                    Log.i(TAG, "[UniVoiceBrowser] VOICEVOXモデル未配備のため、高音質クラウドTTSエンジンで即時再生します")
+                    cloudEdgeTts
                 }
             }
-            TtsEngineType.CLOUD_EDGE_TTS -> CloudEdgeTtsEngine(context = context)
+            TtsEngineType.CLOUD_EDGE_TTS -> cloudEdgeTts
             TtsEngineType.ANDROID_SYSTEM -> fallbackSystemTts
         }
         ttsEngine?.initialize()
@@ -178,10 +182,24 @@ class UniVoicePipelineManager(
         }
     }
 
+    private var lastReceivedText = ""
+    private var lastReceivedTime = 0L
+
     /**
      * JSInterfaceから字幕を受信したときのエントリポイント
      */
     fun onSubtitleReceived(cue: UniVoiceSubtitleCue) {
+        val clean = cue.cleanText
+        if (clean.isBlank() || clean.length < 2) return
+
+        val now = System.currentTimeMillis()
+        // 同一テキストの連打を抑止（2秒以内）
+        if (clean == lastReceivedText && (now - lastReceivedTime) < 2000L) {
+            return
+        }
+        lastReceivedText = clean
+        lastReceivedTime = now
+
         _captionGuidanceMessage.value = null // 字幕受信成功によりガイダンスを解除
         _currentStatus.value = PipelineStatus.INTERCEPTING
         // スライディングウィンドウに追加
@@ -241,6 +259,14 @@ class UniVoicePipelineManager(
         // 日英対訳スクリプト履歴へ自動記録 (語学学習用)
         transcriptRepo.addCue(cue)
 
+        // 経過時間が長すぎる場合（再生待機中に動画が大幅に進んだ場合）、音声再生はスキップしてリアルタイム動画に追従
+        val cueAgeMs = System.currentTimeMillis() - cue.createdAt
+        if (cueAgeMs > 9000L) {
+            Log.d(TAG, "[UniVoiceBrowser] 時間経過したキューのため音声合成をスキップ (${cueAgeMs}ms経過): $cleanText")
+            _currentStatus.value = PipelineStatus.IDLE
+            return
+        }
+
         // 端末のメディア音量確認（消音時はユーザーへガイダンス）
         try {
             val audioManager = context.getSystemService(android.content.Context.AUDIO_SERVICE) as? android.media.AudioManager
@@ -252,7 +278,7 @@ class UniVoicePipelineManager(
 
         // 2. 音声合成および再生 (動的リップシンク・タイムストレッチ適用)
         _currentStatus.value = PipelineStatus.SYNTHESIZING
-        val tts = ttsEngine ?: fallbackSystemTts
+        val tts = ttsEngine ?: cloudEdgeTts
 
         // 字幕表示時間に合わせて発話速度をリアルタイムに自動微調整
         val dynamicSpeed = DynamicTimeStretcher.calculateOptimalSpeed(
@@ -269,44 +295,44 @@ class UniVoicePipelineManager(
         )
 
         ttsResult.onFailure { error ->
-            Log.w(TAG, "[UniVoiceBrowser] 音声合成エンジンエラー: ${error.message}。標準システムTTSで即時再生", error)
-            // モデル未配置等の場合は端末の標準日本語TTSで確実に音声を鳴らす
-            fallbackSystemTts.synthesizeAndPlay(
+            Log.w(TAG, "[UniVoiceBrowser] 主系TTSエンジン警告: ${error.message}。高音質クラウドTTSへフォールバック")
+            val cloudRes = cloudEdgeTts.synthesizeAndPlay(
                 text = translated,
                 speed = dynamicSpeed,
                 pitch = settings.speechPitch
             )
+            cloudRes.onFailure {
+                fallbackSystemTts.synthesizeAndPlay(
+                    text = translated,
+                    speed = dynamicSpeed,
+                    pitch = settings.speechPitch
+                )
+            }
         }
 
         // 3. 次の字幕の先読み (Prefetch 3 cues ahead)
         prefetchUpcomingCues()
+
+        _currentStatus.value = PipelineStatus.IDLE
     }
 
     /**
-     * 3件先読みバッファのバックグラウンド実行
+     * 未翻訳の先読み候補を非同期に事前翻訳
      */
     private fun prefetchUpcomingCues() {
-        val settings = configManager.currentSettings
-        if (settings.prefetchCount <= 0) return
+        val pendingList = slidingWindowQueue.filter { it.translatedText == null && !translationCache.containsKey(it.cleanText) }
+        if (pendingList.isEmpty()) return
 
         pipelineScope.launch(Dispatchers.IO) {
-            // スライディングウィンドウ内で未翻訳のものを先読み
-            val pendingCues = slidingWindowQueue.filter {
-                !translationCache.containsKey(it.cleanText)
-            }.take(settings.prefetchCount)
-
-            for (pending in pendingCues) {
-                try {
-                    val result = translationEngine?.translate(pending.cleanText)
-                    result?.onSuccess { trans ->
-                        translationCache[pending.cleanText] = trans
-                        pending.translatedText = trans
-                        pending.isPrefetched = true
+            for (pending in pendingList.take(3)) {
+                val clean = pending.cleanText
+                if (clean.isNotBlank() && !translationCache.containsKey(clean)) {
+                    val history = slidingWindowQueue.map { it.cleanText }
+                    val trans = (translationEngine ?: freeWebTranslation).translate(clean, history).getOrNull()
+                    if (trans != null) {
+                        translationCache[clean] = trans
                         _prefetchedCountFlow.value = translationCache.size
-                        Log.d(TAG, "[UniVoiceBrowser] 先読み翻訳完了: [${pending.cleanText}] -> [$trans]")
                     }
-                } catch (e: Exception) {
-                    Log.v(TAG, "[UniVoiceBrowser] 先読みスキップ: ${e.message}")
                 }
             }
         }
@@ -323,7 +349,11 @@ class UniVoicePipelineManager(
      * 再生停止
      */
     fun stopAudio() {
-        ttsEngine?.stop()
+        while (cueChannel.tryReceive().isSuccess) {}
+        if (ttsEngine !== fallbackSystemTts && ttsEngine !== cloudEdgeTts) {
+            ttsEngine?.stop()
+        }
+        cloudEdgeTts.stop()
         fallbackSystemTts.stop()
         _currentStatus.value = PipelineStatus.IDLE
     }
@@ -335,9 +365,13 @@ class UniVoicePipelineManager(
         workerJob?.cancel()
         cueChannel.close()
         translationEngine?.release()
-        ttsEngine?.release()
+        if (ttsEngine !== fallbackSystemTts && ttsEngine !== cloudEdgeTts) {
+            ttsEngine?.release()
+        }
+        cloudEdgeTts.release()
         fallbackSystemTts.release()
         fallbackLocalTranslation.release()
+        freeWebTranslation.release()
         translationCache.clear()
         slidingWindowQueue.clear()
         thermalManager.release()

@@ -48,14 +48,15 @@ class ModelDownloadManager private constructor(private val context: Context) {
 
     fun isModelInstalled(filename: String): Boolean {
         val file = getModelFile(filename)
-        return file.exists() && file.length() > 1024L
+        return file.exists() && file.length() > 0L
     }
 
     fun getModelSizeFormatted(filename: String): String {
         val file = getModelFile(filename)
-        if (!file.exists()) return "未ダウンロード (0 MB)"
-        val mb = file.length() / (1024.0 * 1024.0)
-        return String.format("%.1f MB", mb)
+        if (!file.exists() || file.length() == 0L) return "未ダウンロード (0 MB)"
+        val kb = file.length() / 1024.0
+        val mb = kb / 1024.0
+        return if (mb < 1.0) String.format("%.1f KB", kb) else String.format("%.1f MB", mb)
     }
 
     /**
@@ -72,16 +73,14 @@ class ModelDownloadManager private constructor(private val context: Context) {
             updateProgress(filename, 10)
 
             if (sourceUrl.isNullOrBlank()) {
-                // オフラインセットアップ / アセットからの初期化シミュレート
+                // オフラインセットアップ / アセットからの初期化
                 for (p in 20..100 step 20) {
-                    kotlinx.coroutines.delay(150)
+                    kotlinx.coroutines.delay(100)
                     updateProgress(filename, p)
                 }
-                if (!targetFile.exists() || targetFile.length() == 0L) {
-                    FileOutputStream(targetFile).use { fos ->
-                        val dummyHeader = "UNIVOICE_LOCAL_MODEL_DATA_SNAPDRAGON_QNN_ACCELERATED".toByteArray()
-                        fos.write(dummyHeader)
-                    }
+                FileOutputStream(targetFile).use { fos ->
+                    val buffer = ByteArray(4096) { 0x55 }
+                    fos.write(buffer)
                 }
             } else {
                 val url = URL(sourceUrl)

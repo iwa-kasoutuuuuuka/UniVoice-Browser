@@ -195,65 +195,136 @@ object YouTubeScriptInjector {
             // ==========================================
             // 3. 字幕インターセプト (Subtitle Interception)
             // ==========================================
-            let lastEmittedText = "";
-            let lastEmittedTime = 0;
+            // ==========================================
+            // 3. 字幕インターセプト (Subtitle Interception) & 賢い文単位デバウンス
+            // ==========================================
+            let lastEmittedSentence = "";
+            let pendingCaptionText = "";
+            let captionDebounceTimer = null;
+            let debounceStartTime = 0;
 
-            function processCaptionText(rawText) {
-                if (!rawText) return;
-                // 広告動画の再生中は字幕インターセプトを保留（翻訳エンジンの誤爆防止）
-                if (isAdActive()) {
-                    log("広告再生中のため字幕キャプチャをスキップ");
-                    return;
+            function sanitizeCaption(raw) {
+                if (!raw) return "";
+                // 1. YouTube UIのゴミ文字列を除去 (設定ボタン、言語ラベル等)
+                let text = raw
+                    .replace(/\[?(?:英語|日本語|English|Japanese)?\s*\(?(?:自動生成|auto-generated)\)?\s*(?:を?クリックして設定)?\]?/gi, '')
+                    .replace(/を?クリックして設定/gi, '')
+                    .replace(/\s+/g, ' ')
+                    .trim();
+
+                // 2. 2重重複（前半と後半が同一テキスト）の検知・解消
+                const halfLen = Math.floor(text.length / 2);
+                if (halfLen >= 4) {
+                    for (let offset = -1; offset <= 1; offset++) {
+                        const splitIdx = halfLen + offset;
+                        if (splitIdx > 2 && splitIdx < text.length) {
+                            const firstHalf = text.substring(0, splitIdx).trim();
+                            const secondHalf = text.substring(splitIdx).trim();
+                            if (firstHalf.length >= 4 && firstHalf === secondHalf) {
+                                text = firstHalf;
+                                break;
+                            }
+                        }
+                    }
+                }
+                return text.trim();
+            }
+
+            function flushCaption() {
+                if (!pendingCaptionText) return;
+                let sentence = pendingCaptionText;
+                pendingCaptionText = "";
+
+                if (sentence === lastEmittedSentence) return;
+
+                // 前回確定文と今回の文の間で、ローリング字幕特有の単語重複を除去
+                if (lastEmittedSentence) {
+                    const prevWords = lastEmittedSentence.split(/\s+/);
+                    const cleanWords = sentence.split(/\s+/);
+                    for (let n = Math.min(5, cleanWords.length - 1); n >= 1; n--) {
+                        const headOfClean = cleanWords.slice(0, n).join(' ').toLowerCase().replace(/[.,?!]/g, '');
+                        const tailOfPrev = prevWords.slice(-n).join(' ').toLowerCase().replace(/[.,?!]/g, '');
+                        if (headOfClean === tailOfPrev && headOfClean.length >= 2) {
+                            sentence = cleanWords.slice(n).join(' ');
+                            break;
+                        }
+                    }
                 }
 
-                const clean = rawText.replace(/\s+/g, ' ').trim();
-                if (clean.length === 0) return;
+                sentence = sentence.trim();
+                if (sentence.length < 2) return;
+                if (sentence === lastEmittedSentence) return;
 
+                lastEmittedSentence = pendingCaptionText || sentence;
                 const video = document.querySelector('video');
                 const nowMs = video ? Math.floor(video.currentTime * 1000) : Date.now();
-
-                // 重複通知の抑止（同一テキストかつ2秒以内の再検知を無視）
-                if (clean === lastEmittedText && (nowMs - lastEmittedTime) < 2000) {
-                    return;
-                }
-
-                lastEmittedText = clean;
-                lastEmittedTime = nowMs;
-
-                // 推定表示時間（文字数に応じた3〜5秒のウィンドウ）
-                const estimatedDurationMs = Math.max(2500, Math.min(6000, clean.length * 80));
+                const estimatedDurationMs = Math.max(2800, Math.min(7500, sentence.length * 85));
                 const endMs = nowMs + estimatedDurationMs;
 
-                log("字幕キャプチャ成功: [" + nowMs + "ms] " + clean);
+                log("字幕確定（文単位・重複解消済）: [" + nowMs + "ms] " + sentence);
                 if (bridge && bridge.onSubtitleReceived) {
-                    bridge.onSubtitleReceived(nowMs, endMs, clean);
+                    bridge.onSubtitleReceived(nowMs, endMs, sentence);
                 }
             }
 
-            // 字幕DOM要素の監視
-            function observeCaptions() {
-                const captionSelectors = [
-                    '.ytp-caption-window-bottom',
-                    '.ytp-caption-window-rollup',
-                    '.caption-window',
-                    '.ytp-caption-segment',
-                    '#player-captions-container',
-                    '.player-caption-window'
-                ];
+            function processCaptionText(rawText) {
+                if (!rawText) return;
+                if (isAdActive()) return;
 
+                const clean = sanitizeCaption(rawText);
+                if (!clean || clean.length < 2) return;
+                if (clean === lastEmittedSentence) return;
+
+                const now = Date.now();
+                if (!pendingCaptionText) {
+                    debounceStartTime = now;
+                }
+                pendingCaptionText = clean;
+
+                // 文末記号で終わるか、一定時間経過した場合は短時間(350ms)で確定送信
+                const isSentenceEnd = /[.?!。！？]$/.test(clean);
+                const isOverMaxWait = (now - debounceStartTime) > 2200;
+                const delay = (isSentenceEnd || isOverMaxWait) ? 350 : 650;
+
+                if (captionDebounceTimer) {
+                    clearTimeout(captionDebounceTimer);
+                }
+                captionDebounceTimer = setTimeout(function() {
+                    debounceStartTime = 0;
+                    flushCaption();
+                }, delay);
+            }
+
+            // 字幕DOM要素の監視 (二重取得の防止)
+            function observeCaptions() {
                 const captionObserver = new MutationObserver(function(mutations) {
-                    let combinedText = '';
-                    const segments = document.querySelectorAll('.ytp-caption-segment, .caption-window, .player-caption-window');
+                    // 最も内側の字幕セグメントのみを取得（親要素との二重取得を完全防止）
+                    const segments = document.querySelectorAll('.ytp-caption-segment');
+                    let rawText = '';
+
                     if (segments && segments.length > 0) {
                         segments.forEach(function(el) {
                             if (el.innerText) {
-                                combinedText += ' ' + el.innerText;
+                                rawText += ' ' + el.innerText;
                             }
+                        });
+                    } else {
+                        // セグメントがない場合のフォールバック（ボタン要素等を除去して取得）
+                        const windows = document.querySelectorAll('.caption-window, .player-caption-window');
+                        windows.forEach(function(w) {
+                            try {
+                                const clone = w.cloneNode(true);
+                                const buttons = clone.querySelectorAll('button, .ytp-button, [role="button"]');
+                                buttons.forEach(function(b) { b.remove(); });
+                                if (clone.innerText) {
+                                    rawText += ' ' + clone.innerText;
+                                }
+                            } catch (_e) {}
                         });
                     }
 
-                    if (combinedText.trim().length > 0) {
-                        processCaptionText(combinedText);
+                    if (rawText.trim().length > 0) {
+                        processCaptionText(rawText);
                     }
                 });
 
@@ -263,7 +334,7 @@ object YouTubeScriptInjector {
                     characterData: true
                 });
 
-                log("字幕MutationObserver設定完了");
+                log("字幕MutationObserver設定完了 (文単位デバウンス＆重複除去適用)");
             }
 
             // YouTubeの字幕ボタンを自動有効化（未ONの場合）＆状態通知

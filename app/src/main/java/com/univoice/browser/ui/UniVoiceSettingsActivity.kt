@@ -143,6 +143,9 @@ class UniVoiceSettingsActivity : AppCompatActivity() {
         } else {
             "Gemma 2B LLM: 未配備 (完全ローカル時にオフライン辞書で代替)"
         }
+        binding.tvGemmaStatus.setTextColor(
+            if (gemmaInstalled) android.graphics.Color.parseColor("#2E7D32") else android.graphics.Color.parseColor("#C62828")
+        )
 
         val voicevoxInstalled = modelMgr.isModelInstalled(com.univoice.browser.modelmgr.ModelDownloadManager.MODEL_VOICEVOX)
         val voicevoxSize = modelMgr.getModelSizeFormatted(com.univoice.browser.modelmgr.ModelDownloadManager.MODEL_VOICEVOX)
@@ -151,6 +154,9 @@ class UniVoiceSettingsActivity : AppCompatActivity() {
         } else {
             "VOICEVOX ONNX: 未配備 (標準TTSで代替)"
         }
+        binding.tvVoicevoxStatus.setTextColor(
+            if (voicevoxInstalled) android.graphics.Color.parseColor("#2E7D32") else android.graphics.Color.parseColor("#C62828")
+        )
     }
 
     private fun startModelDeployment() {
