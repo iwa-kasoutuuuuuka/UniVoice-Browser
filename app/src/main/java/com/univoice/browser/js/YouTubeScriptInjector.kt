@@ -51,20 +51,17 @@ object YouTubeScriptInjector {
                         ytm-promoted-sparkles-web-renderer,
                         ytm-promoted-video-renderer,
                         ytm-companion-ad-renderer,
-                        .ad-container,
-                        .ad-interrupting,
                         .ytp-ad-overlay-container,
                         .ytp-ad-message-container,
                         .ytp-ad-action-interstitial,
                         .ytp-ad-progress,
-                        .video-ads,
                         #player-ads,
-                        ad-slot-renderer,
                         ytm-statement-banner-renderer,
                         .sparkles-light-cta,
                         .promoted-item,
-                        .ytp-ad-text,
-                        .ytp-ad-preview-container {
+                        .ytp-ad-preview-container,
+                        .open-in-app,
+                        ytm-open-app-tool-bar-renderer {
                             display: none !important;
                             visibility: hidden !important;
                             height: 0 !important;
@@ -86,45 +83,14 @@ object YouTubeScriptInjector {
             function enforceMute(video) {
                 if (!audioSuppressionEnabled || !video) return;
                 try {
-                    if (!video.muted || video.volume > 0) {
+                    if (!video.muted) {
                         video.muted = true;
-                        video.volume = 0;
-                        if (bridge && bridge.onAudioSuppressed) {
-                            bridge.onAudioSuppressed(true);
-                        }
+                    }
+                    if (bridge && bridge.onAudioSuppressed) {
+                        bridge.onAudioSuppressed(true);
                     }
                 } catch (e) {
                     log("Mute適用エラー: " + e.message);
-                }
-            }
-
-            // HTMLMediaElement プロトタイプの保護 (スクリプトからの自動ミュート解除を防止)
-            if (audioSuppressionEnabled) {
-                try {
-                    const originalVolumeDescriptor = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'volume');
-                    const originalMutedDescriptor = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'muted');
-
-                    if (originalVolumeDescriptor && originalVolumeDescriptor.set) {
-                        Object.defineProperty(HTMLMediaElement.prototype, 'volume', {
-                            get: function() { return 0; },
-                            set: function(val) {
-                                originalVolumeDescriptor.set.call(this, 0);
-                            },
-                            configurable: true
-                        });
-                    }
-
-                    if (originalMutedDescriptor && originalMutedDescriptor.set) {
-                        Object.defineProperty(HTMLMediaElement.prototype, 'muted', {
-                            get: function() { return true; },
-                            set: function(val) {
-                                originalMutedDescriptor.set.call(this, true);
-                            },
-                            configurable: true
-                        });
-                    }
-                } catch (e) {
-                    log("プロトタイプオーバーライド注意: " + e.message);
                 }
             }
 
@@ -157,49 +123,58 @@ object YouTubeScriptInjector {
             function isAdActive() {
                 if (!adBlockEnabled) return false;
                 const player = document.querySelector('#movie_player, .html5-video-player');
-                return document.querySelector('.ad-showing, .ad-interrupting, .video-ads, ad-slot-renderer') !== null ||
-                       (player && (player.classList.contains('ad-showing') || player.classList.contains('ad-interrupting')));
+                if (player && (player.classList.contains('ad-showing') || player.classList.contains('ad-interrupting'))) {
+                    return true;
+                }
+                const adShowingEl = document.querySelector('.ad-showing, .ad-interrupting');
+                return adShowingEl !== null;
             }
 
             function handleVideoAds() {
                 if (!adBlockEnabled) return;
                 try {
-                    if (isAdActive()) {
-                        const videos = document.querySelectorAll('video');
-                        videos.forEach(function(v) {
-                            // 広告動画の再生位置を終端に移動＆超高速再生で即終了
-                            if (isFinite(v.duration) && v.duration > 0 && v.currentTime < v.duration) {
-                                v.currentTime = v.duration;
-                            }
-                            v.playbackRate = 16.0;
-                        });
-                    }
-
-                    // スキップボタン自動クリック
+                    // スキップボタン自動クリック（YouTubeモバイル & PC共通）
                     const skipSelectors = [
                         '.ytp-ad-skip-button',
                         '.ytp-ad-skip-button-modern',
                         '.videoAdUiSkipButton',
                         'button.ytp-ad-skip-button-icon',
-                        '.ytp-ad-skip-button-container button'
+                        '.ytp-ad-skip-button-container button',
+                        '.ytp-ad-skip-button-slot button',
+                        'button[class*="skip-button"]'
                     ];
+                    let clickedSkip = false;
                     skipSelectors.forEach(function(sel) {
                         const btns = document.querySelectorAll(sel);
                         btns.forEach(function(b) {
                             if (b && typeof b.click === 'function') {
                                 b.click();
+                                clickedSkip = true;
                                 log("動画広告スキップボタンを自動クリックしました");
                             }
                         });
                     });
 
+                    // 広告がアクティブであると確実に判明している場合のみ、広告動画を早送りスキップ
+                    if (isAdActive()) {
+                        const videos = document.querySelectorAll('video');
+                        videos.forEach(function(v) {
+                            // 本編動画の誤スキップを防止するため、広告再生中かつ180秒以下の短尺動画のみ終端へジャンプ
+                            if (isFinite(v.duration) && v.duration > 0 && v.duration <= 180 && v.currentTime < v.duration) {
+                                v.currentTime = v.duration;
+                                v.playbackRate = 16.0;
+                                log("広告動画を終端へスキップしました");
+                            }
+                        });
+                    }
+
                     // オーバーレイ広告閉じるボタン自動クリック
-                    const closeBtns = document.querySelectorAll('.ytp-ad-overlay-close-button, .ytp-ad-overlay-close-container');
+                    const closeBtns = document.querySelectorAll('.ytp-ad-overlay-close-button, .ytp-ad-overlay-close-container, .ytp-ad-image-overlay .close-button');
                     closeBtns.forEach(function(cb) {
                         if (cb && typeof cb.click === 'function') cb.click();
                     });
                 } catch (e) {
-                    // スキップ試行例外の握りつぶし
+                    // スキップ試行例外の安全な処理
                 }
             }
 

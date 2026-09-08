@@ -1,4 +1,4 @@
-﻿package com.univoice.browser.adblock
+package com.univoice.browser.adblock
 
 import android.net.Uri
 import android.util.Log
@@ -57,8 +57,7 @@ object AdBlockEngine {
     private val BLOCKED_PATH_PATTERNS = arrayOf(
         "/api/stats/ads",
         "/pagead/",
-        "/ptracking",
-        "/youtubei/v1/log_event"
+        "/ptracking"
     )
 
     /**

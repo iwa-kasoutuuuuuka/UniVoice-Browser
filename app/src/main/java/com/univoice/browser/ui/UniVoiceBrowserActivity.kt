@@ -41,6 +41,9 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
         private const val DEFAULT_HOMEPAGE = "https://m.youtube.com/?hl=ja&gl=JP"
     }
 
+    @Volatile
+    private var currentLoadedUrl: String = DEFAULT_HOMEPAGE
+
     override fun attachBaseContext(newBase: android.content.Context) {
         val locale = java.util.Locale.JAPANESE
         java.util.Locale.setDefault(locale)
@@ -62,7 +65,16 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
         observePipelineStates()
 
         // 初期ページ読み込み (日本語クエリ・ヘッダー付き)
-        loadInputUrl(DEFAULT_HOMEPAGE)
+        val initialUrl = intent?.dataString ?: DEFAULT_HOMEPAGE
+        loadInputUrl(initialUrl)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        intent.dataString?.let { url ->
+            loadInputUrl(url)
+        }
     }
 
     /**
@@ -170,9 +182,9 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
             userAgentString = settings.userAgentString.replace("wv", "") // フルWebブラウザ識別
         }
 
-        // JavaScript ブリッジの登録 (オリジン検証用コールバックを注入)
+        // JavaScript ブリッジの登録 (オリジン検証用コールバックを注入: UIスレッド外からのWebViewアクセスを回避)
         val jsInterface = UniVoiceJSInterface(
-            getCurrentUrlCallback = { binding.wvBrowser.url },
+            getCurrentUrlCallback = { currentLoadedUrl },
             onSubtitleReceivedCallback = { cue ->
                 pipelineManager.onSubtitleReceived(cue)
             },
@@ -191,6 +203,7 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
         webView.webViewClient = object : WebViewClient() {
             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                 super.onPageStarted(view, url, favicon)
+                url?.let { currentLoadedUrl = it }
                 binding.progressBar.visibility = View.VISIBLE
                 binding.etUrl.setText(url)
                 checkAndInjectYouTubeScripts(url)
@@ -198,18 +211,45 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
 
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
+                url?.let { currentLoadedUrl = it }
                 binding.progressBar.visibility = View.GONE
                 checkAndInjectYouTubeScripts(url)
             }
 
             override fun doUpdateVisitedHistory(view: WebView?, url: String?, isReload: Boolean) {
                 super.doUpdateVisitedHistory(view, url, isReload)
+                url?.let { currentLoadedUrl = it }
                 // YouTube SPA (Single Page Application) の画面遷移時にも再注入
                 checkAndInjectYouTubeScripts(url)
             }
 
             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
-                return false // アプリ内WebViewで常に遷移
+                val url = request?.url?.toString() ?: return false
+                // intent:// スキーム等のハンドリング (YouTubeアプリ遷移リンクをWeb内URLへ変換または無効化)
+                if (url.startsWith("intent:")) {
+                    try {
+                        val intent = android.content.Intent.parseUri(url, android.content.Intent.URI_INTENT_SCHEME)
+                        val fallbackUrl = intent.getStringExtra("browser_fallback_url")
+                        if (!fallbackUrl.isNullOrBlank()) {
+                            view?.loadUrl(fallbackUrl)
+                            return true
+                        }
+                        val dataUri = intent.data
+                        if (dataUri != null && (dataUri.scheme == "http" || dataUri.scheme == "https")) {
+                            view?.loadUrl(dataUri.toString())
+                            return true
+                        }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "intent scheme parse error: ${e.message}")
+                    }
+                    return true // 未知の外部アプリインテントでWebページエラーになるのを防ぐ
+                }
+
+                if (!url.startsWith("http://") && !url.startsWith("https://")) {
+                    return true // javascript:, file:, market: 等の不正・不要スキームを抑止
+                }
+
+                return false // 通常のHTTP/HTTPSはWebView内で処理
             }
 
             override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
