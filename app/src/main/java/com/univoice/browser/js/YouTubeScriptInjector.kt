@@ -78,7 +78,44 @@ object YouTubeScriptInjector {
                 }
             }
 
-            // 全画面APIのフォールバック・保証
+            // ネイティブの requestFullscreen 関数参照を保持（無限再帰防止）
+            const nativeRequestFullscreen = Element.prototype.requestFullscreen || 
+                                           Element.prototype.webkitRequestFullscreen || 
+                                           Element.prototype.webkitRequestFullScreen;
+
+            let isEnteringFullscreen = false;
+
+            function enterVideoFullscreen() {
+                if (isEnteringFullscreen) return true;
+                const video = document.querySelector('video');
+                if (!video) {
+                    log("動画要素が見つかりません");
+                    return false;
+                }
+                log("HTML5動画のネイティブ全画面表示（最大化）を実行します");
+                isEnteringFullscreen = true;
+                try {
+                    if (nativeRequestFullscreen) {
+                        try {
+                            const res = nativeRequestFullscreen.call(video);
+                            if (res && typeof res.then === 'function') {
+                                res.catch(function(e) {
+                                    log("nativeRequestFullscreen rejected: " + e.message);
+                                });
+                            }
+                            log("nativeRequestFullscreen.call(video) 実行成功");
+                            return true;
+                        } catch(e) {
+                            log("nativeRequestFullscreen.call(video) 例外: " + e.message);
+                        }
+                    }
+                } finally {
+                    setTimeout(function() { isEnteringFullscreen = false; }, 600);
+                }
+                return false;
+            }
+
+            // 全画面APIのフォールバック・保証 & Element.prototype.requestFullscreen のフック
             try {
                 if (!document.fullscreenEnabled) {
                     Object.defineProperty(document, 'fullscreenEnabled', {
@@ -86,7 +123,37 @@ object YouTubeScriptInjector {
                         configurable: true
                     });
                 }
-            } catch(_e) {}
+                Element.prototype.requestFullscreen = function() {
+                    log("Element.prototype.requestFullscreen 呼び出しを検知 -> enterVideoFullscreen() へ転送");
+                    enterVideoFullscreen();
+                    return Promise.resolve();
+                };
+                if (Element.prototype.webkitRequestFullscreen) {
+                    Element.prototype.webkitRequestFullscreen = Element.prototype.requestFullscreen;
+                }
+                if (Element.prototype.webkitRequestFullScreen) {
+                    Element.prototype.webkitRequestFullScreen = Element.prototype.requestFullscreen;
+                }
+            } catch(e) {
+                log("全画面APIフック例外: " + e.message);
+            }
+
+            // YouTube DOM上の全画面ボタンのタップを確実に捕捉するキャプチャフェーズ・イベントリスナー
+            function handleFullscreenInteraction(e) {
+                const target = e.target;
+                if (!target) return;
+                const fsBtn = target.closest && target.closest(
+                    '.fullscreen-icon, .ytp-fullscreen-button, button[aria-label*="全画面"], button[aria-label*="フルスクリーン"], button[aria-label*="Fullscreen"], ytm-custom-control[aria-label*="全画面"]'
+                );
+                if (fsBtn) {
+                    log("YouTube側の全画面ボタンタップをインターセプト -> enterVideoFullscreen()");
+                    e.preventDefault();
+                    e.stopPropagation();
+                    enterVideoFullscreen();
+                }
+            }
+            document.addEventListener('click', handleFullscreenInteraction, true);
+            document.addEventListener('touchend', handleFullscreenInteraction, true);
 
             // ==========================================
             // 1. HTML5 <video> 音声の完全抑制 (Mute Enforcement)
@@ -164,27 +231,11 @@ object YouTubeScriptInjector {
 
             window.__univoice_toggle_fullscreen = function() {
                 try {
-                    const player = document.querySelector('#movie_player, .html5-video-player');
-                    if (player && typeof player.toggleFullscreen === 'function') {
-                        player.toggleFullscreen();
-                        return;
-                    }
-                    const btn = document.querySelector('.ytp-fullscreen-button, button[aria-label*="全画面"], button[aria-label*="フルスクリーン"], button[aria-label*="Fullscreen"], .fullscreen-icon');
-                    if (btn && typeof btn.click === 'function') {
-                        btn.click();
-                        return;
-                    }
-                    const video = document.querySelector('video');
-                    if (video) {
-                        if (document.fullscreenElement) {
-                            if (document.exitFullscreen) document.exitFullscreen();
-                        } else {
-                            if (video.requestFullscreen) {
-                                video.requestFullscreen();
-                            } else if (video.webkitRequestFullscreen) {
-                                video.webkitRequestFullscreen();
-                            }
-                        }
+                    if (document.fullscreenElement || document.webkitFullscreenElement) {
+                        if (document.exitFullscreen) document.exitFullscreen();
+                        else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+                    } else {
+                        enterVideoFullscreen();
                     }
                 } catch(e) {
                     log("全画面切替例外: " + e.message);
@@ -485,16 +536,40 @@ object YouTubeScriptInjector {
                 }
             }
 
+            // プレビュー再生時のミュート解除オーバーレイを自動解除し、操作コントロールを解放
+            let previewMuteDismissed = false;
+            function autoDismissPreviewMute() {
+                if (previewMuteDismissed) return;
+                try {
+                    const previewMuteBtn = document.querySelector(
+                        '.ytp-unmute, .ytp-unmute-button, .ytm-player-preview-mute-button, ' +
+                        '.preview-mute-button, .ytm-player-preview-unmute-button, ' +
+                        'button[aria-label*="ミュートを解除"], button[aria-label*="ミュート解除"], ' +
+                        'button[aria-label*="tap to unmute" i], button[aria-label*="unmute" i], ' +
+                        'ytm-player-preview-mute-button'
+                    );
+                    if (previewMuteBtn && previewMuteBtn.offsetParent !== null && typeof previewMuteBtn.click === 'function') {
+                        log("プレビューのミュート解除ボタンを検知・自動タップしてプレイヤー操作を解放します");
+                        previewMuteBtn.click();
+                        previewMuteDismissed = true;
+                    }
+                } catch(e) {
+                    // silent
+                }
+            }
+
             // ==========================================
             // 4. ループ・DOMポーリングによる堅牢性確保
             // ==========================================
             function handlePageNavigation() {
                 log("YouTube ページ遷移を検知: " + window.location.href);
                 autoCcAttemptedForVideo = false;
+                previewMuteDismissed = false;
                 lastReportedCaptionState = null;
                 pendingCaptionText = "";
                 lastEmittedSentence = "";
                 tryAutoTranslateToJapanese();
+                autoDismissPreviewMute();
                 const videos = document.querySelectorAll('video');
                 videos.forEach(function(v) {
                     attachVideoListeners(v);
@@ -511,6 +586,7 @@ object YouTubeScriptInjector {
                     attachVideoListeners(v);
                     enforceMute(v);
                 });
+                autoDismissPreviewMute();
                 handleVideoAds();
                 checkCaptionState();
             }, 1000);

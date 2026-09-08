@@ -7,6 +7,7 @@ import android.os.Bundle
 import android.util.Log
 import android.view.View
 import android.view.inputmethod.EditorInfo
+import android.webkit.ConsoleMessage
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
@@ -334,6 +335,10 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
             }
         }
 
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.KITKAT) {
+            WebView.setWebContentsDebuggingEnabled(true)
+        }
+
         webView.webChromeClient = object : WebChromeClient() {
             override fun onProgressChanged(view: WebView?, newProgress: Int) {
                 binding.progressBar.progress = newProgress
@@ -342,13 +347,21 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
                 }
             }
 
+            override fun onConsoleMessage(consoleMessage: ConsoleMessage?): Boolean {
+                val msg = consoleMessage?.message() ?: ""
+                Log.d(TAG, "[WebConsole ${consoleMessage?.messageLevel()}] $msg (${consoleMessage?.sourceId()}:${consoleMessage?.lineNumber()})")
+                return true
+            }
+
             override fun onShowCustomView(view: View?, callback: CustomViewCallback?) {
+                Log.i(TAG, "[UniVoiceBrowser] WebChromeClient.onShowCustomView 受信")
                 if (view != null) {
                     showCustomView(view, callback)
                 }
             }
 
             override fun onHideCustomView() {
+                Log.i(TAG, "[UniVoiceBrowser] WebChromeClient.onHideCustomView 受信")
                 hideCustomView()
             }
         }
@@ -494,6 +507,7 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
         binding.cardSubtitleOverlay.bringToFront()
         binding.btnFullscreen.setImageResource(R.drawable.ic_fullscreen_exit)
         setFullscreenImmersive(true)
+        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
 
         Log.i(TAG, "[UniVoiceBrowser] YouTube動画の最大化（全画面表示）を開始しました")
     }
