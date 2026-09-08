@@ -45,6 +45,11 @@ class AndroidSystemTtsEngine(private val context: Context) : TtsEngine {
                         } else {
                             Log.i(TAG, "[UniVoiceBrowser] Android標準TTS (日本語) 初期化完了")
                         }
+                        val audioAttributes = android.media.AudioAttributes.Builder()
+                            .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
+                            .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SPEECH)
+                            .build()
+                        tts?.setAudioAttributes(audioAttributes)
                         isInitialized = true
                         deferred.complete(true)
                     } else {
@@ -76,10 +81,14 @@ class AndroidSystemTtsEngine(private val context: Context) : TtsEngine {
                 val utteranceId = "univoice_${System.currentTimeMillis()}"
                 val params = Bundle().apply {
                     putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, 1.0f)
+                    putInt(TextToSpeech.Engine.KEY_PARAM_STREAM, android.media.AudioManager.STREAM_MUSIC)
                 }
 
+                val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager
+                val currentVol = audioManager?.getStreamVolume(android.media.AudioManager.STREAM_MUSIC) ?: -1
+                Log.d(TAG, "[UniVoiceBrowser] 標準TTS発話開始 (音量=$currentVol): $text")
+
                 tts?.speak(text, TextToSpeech.QUEUE_FLUSH, params, utteranceId)
-                Log.d(TAG, "[UniVoiceBrowser] 標準TTS発話開始: $text")
                 Result.success(Unit)
             } catch (e: Exception) {
                 Log.e(TAG, "[UniVoiceBrowser] 標準TTS発話例外: ${e.message}", e)

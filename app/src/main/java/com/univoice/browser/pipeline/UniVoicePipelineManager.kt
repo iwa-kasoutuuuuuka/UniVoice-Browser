@@ -73,6 +73,7 @@ class UniVoicePipelineManager(
     // 予備用システムTTS (モデル未配置またはAPIエラー時の即時フォールバック)
     private val fallbackSystemTts = com.univoice.browser.tts.AndroidSystemTtsEngine(context)
     private val fallbackLocalTranslation = com.univoice.browser.translation.LocalAiEdgeTranslationEngine(context)
+    private val freeWebTranslation = com.univoice.browser.translation.FreeWebTranslationEngine()
 
     // スライディングウィンドウ・キャッシュ (12GB+ RAM最適化)
     private val slidingWindowQueue = ConcurrentLinkedQueue<UniVoiceSubtitleCue>()
@@ -120,38 +121,49 @@ class UniVoicePipelineManager(
 
         // 翻訳エンジンの選定
         val targetTransType = settings.effectiveTranslationEngine
-        if (translationEngine == null || translationEngine?.engineType != targetTransType) {
-            translationEngine?.release()
-            translationEngine = when (targetTransType) {
-                TranslationEngineType.GEMINI_CLOUD -> CloudGeminiTranslationEngine(
-                    apiKey = settings.geminiApiKey,
-                    modelName = settings.geminiModelName,
-                    customEndpoint = settings.customEndpointUrl
-                )
-                TranslationEngineType.LOCAL_EDGE -> LocalAiEdgeTranslationEngine(
-                    context = context,
-                    hardwareAcceleration = settings.hardwareAcceleration
-                )
+        translationEngine?.release()
+        translationEngine = when (targetTransType) {
+            TranslationEngineType.GEMINI_CLOUD -> {
+                if (settings.geminiApiKey.isNotBlank()) {
+                    CloudGeminiTranslationEngine(
+                        apiKey = settings.geminiApiKey,
+                        modelName = settings.geminiModelName,
+                        customEndpoint = settings.customEndpointUrl
+                    )
+                } else {
+                    Log.i(TAG, "[UniVoiceBrowser] Gemini APIキー未入力のため、高精度Web翻訳エンジンを直接適用します")
+                    freeWebTranslation
+                }
             }
-            translationEngine?.initialize()
-            Log.i(TAG, "[UniVoiceBrowser] 翻訳エンジンを初期化: ${targetTransType.titleJapanese}")
+            TranslationEngineType.LOCAL_EDGE -> LocalAiEdgeTranslationEngine(
+                context = context,
+                hardwareAcceleration = settings.hardwareAcceleration
+            )
         }
+        translationEngine?.initialize()
+        Log.i(TAG, "[UniVoiceBrowser] 翻訳エンジンを初期化: ${targetTransType.titleJapanese}")
 
         // TTSエンジンの選定
         val targetTtsType = settings.effectiveTtsEngine
-        if (ttsEngine == null || ttsEngine?.engineType != targetTtsType) {
-            ttsEngine?.release()
-            ttsEngine = when (targetTtsType) {
-                TtsEngineType.LOCAL_VOICEVOX_ONNX -> LocalOnnxTtsEngine(
-                    context = context,
-                    hardwareAcceleration = settings.hardwareAcceleration
-                )
-                TtsEngineType.CLOUD_EDGE_TTS -> CloudEdgeTtsEngine(context = context)
-                TtsEngineType.ANDROID_SYSTEM -> AndroidSystemTtsEngine(context = context)
+        ttsEngine?.release()
+        ttsEngine = when (targetTtsType) {
+            TtsEngineType.LOCAL_VOICEVOX_ONNX -> {
+                val modelMgr = com.univoice.browser.modelmgr.ModelDownloadManager.getInstance(context)
+                if (modelMgr.isModelInstalled(com.univoice.browser.modelmgr.ModelDownloadManager.MODEL_VOICEVOX)) {
+                    LocalOnnxTtsEngine(
+                        context = context,
+                        hardwareAcceleration = settings.hardwareAcceleration
+                    )
+                } else {
+                    Log.i(TAG, "[UniVoiceBrowser] VOICEVOXモデル未配備のため、標準TTSエンジンで即時再生します")
+                    fallbackSystemTts
+                }
             }
-            ttsEngine?.initialize()
-            Log.i(TAG, "[UniVoiceBrowser] 音声合成エンジンを初期化: ${targetTtsType.titleJapanese}")
+            TtsEngineType.CLOUD_EDGE_TTS -> CloudEdgeTtsEngine(context = context)
+            TtsEngineType.ANDROID_SYSTEM -> fallbackSystemTts
         }
+        ttsEngine?.initialize()
+        Log.i(TAG, "[UniVoiceBrowser] 音声合成エンジンを初期化: ${targetTtsType.titleJapanese}")
     }
 
     /**
@@ -202,25 +214,20 @@ class UniVoicePipelineManager(
 
         val settings = configManager.currentSettings
 
-        // 1. キャッシュ確認（先読み済みかどうか）
         var translated = translationCache[cleanText]
-
         if (translated == null) {
             _currentStatus.value = PipelineStatus.TRANSLATING
             val history = slidingWindowQueue.map { it.cleanText }
 
-            val transEngine = translationEngine ?: fallbackLocalTranslation
+            val transEngine = translationEngine ?: freeWebTranslation
             val result = transEngine.translate(cleanText, history)
 
             translated = result.getOrElse { error ->
-                Log.w(TAG, "[UniVoiceBrowser] 翻訳エンジン警告: ${error.message}。ローカル辞書フォールバックを実行")
-                if (settings.geminiApiKey.isBlank() && settings.effectiveTranslationEngine == TranslationEngineType.GEMINI_CLOUD) {
-                    _errorMessage.value = "💡 APIキー未設定のため簡易音声再生中 (設定からキー入力で高品質化)"
-                } else {
-                    _errorMessage.value = "翻訳注意: ${error.localizedMessage ?: "代替音声中"}"
+                Log.w(TAG, "[UniVoiceBrowser] 翻訳エンジン警告: ${error.message}。Web翻訳/ローカル辞書フォールバックを実行")
+                val webRes = freeWebTranslation.translate(cleanText, history)
+                webRes.getOrElse {
+                    fallbackLocalTranslation.translate(cleanText, history).getOrDefault("動画の音声: $cleanText")
                 }
-                // ローカル辞書/オフライン翻訳で日本語テキストを生成して音声合成へ繋ぐ
-                fallbackLocalTranslation.translate(cleanText, history).getOrDefault(cleanText)
             }
             translationCache[cleanText] = translated
         } else {
@@ -233,6 +240,15 @@ class UniVoicePipelineManager(
 
         // 日英対訳スクリプト履歴へ自動記録 (語学学習用)
         transcriptRepo.addCue(cue)
+
+        // 端末のメディア音量確認（消音時はユーザーへガイダンス）
+        try {
+            val audioManager = context.getSystemService(android.content.Context.AUDIO_SERVICE) as? android.media.AudioManager
+            val currentVol = audioManager?.getStreamVolume(android.media.AudioManager.STREAM_MUSIC) ?: 10
+            if (currentVol == 0) {
+                _errorMessage.value = "⚠️ 音声が消音(音量0)です。端末の音量ボタンで上げてください"
+            }
+        } catch (_: Exception) {}
 
         // 2. 音声合成および再生 (動的リップシンク・タイムストレッチ適用)
         _currentStatus.value = PipelineStatus.SYNTHESIZING

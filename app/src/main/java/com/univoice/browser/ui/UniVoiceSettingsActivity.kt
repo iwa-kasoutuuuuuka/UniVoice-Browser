@@ -75,16 +75,16 @@ class UniVoiceSettingsActivity : AppCompatActivity() {
             when (checkedId) {
                 R.id.rbPureLocal -> {
                     binding.layoutManualSettings.visibility = View.GONE
+                    binding.cardGeminiApiKey.visibility = View.GONE
                 }
-                R.id.rbPureApi -> {
+                R.id.rbPureApi, R.id.rbHybridOptimal -> {
                     binding.layoutManualSettings.visibility = View.GONE
-                }
-                R.id.rbHybridOptimal -> {
-                    binding.layoutManualSettings.visibility = View.GONE
+                    binding.cardGeminiApiKey.visibility = View.VISIBLE
                 }
                 R.id.rbManual -> {
                     // 手動設定時のみサブオプションを展開
                     binding.layoutManualSettings.visibility = View.VISIBLE
+                    binding.cardGeminiApiKey.visibility = View.VISIBLE
                 }
             }
         }
@@ -106,6 +106,19 @@ class UniVoiceSettingsActivity : AppCompatActivity() {
             configManager.resetToRecommendedDefaults()
             loadCurrentSettingsIntoUi()
             Toast.makeText(this, "推奨デフォルト（最適構成）に復元しました", Toast.LENGTH_SHORT).show()
+        }
+
+        // 無料Gemini APIキー取得リンク
+        binding.btnGetApiKey.setOnClickListener {
+            try {
+                val intent = android.content.Intent(
+                    android.content.Intent.ACTION_VIEW,
+                    android.net.Uri.parse("https://aistudio.google.com/app/apikey")
+                )
+                startActivity(intent)
+            } catch (e: Exception) {
+                Toast.makeText(this, "ブラウザの起動に失敗しました: https://aistudio.google.com/app/apikey", Toast.LENGTH_LONG).show()
+            }
         }
 
         // 日英対訳スクリプト画面へ遷移
@@ -165,11 +178,24 @@ class UniVoiceSettingsActivity : AppCompatActivity() {
 
         // 動作モード
         when (settings.currentMode) {
-            ProcessingMode.PURE_LOCAL -> binding.rbPureLocal.isChecked = true
-            ProcessingMode.PURE_API -> binding.rbPureApi.isChecked = true
-            ProcessingMode.HYBRID_OPTIMAL -> binding.rbHybridOptimal.isChecked = true
+            ProcessingMode.PURE_LOCAL -> {
+                binding.rbPureLocal.isChecked = true
+                binding.cardGeminiApiKey.visibility = View.GONE
+                binding.layoutManualSettings.visibility = View.GONE
+            }
+            ProcessingMode.PURE_API -> {
+                binding.rbPureApi.isChecked = true
+                binding.cardGeminiApiKey.visibility = View.VISIBLE
+                binding.layoutManualSettings.visibility = View.GONE
+            }
+            ProcessingMode.HYBRID_OPTIMAL -> {
+                binding.rbHybridOptimal.isChecked = true
+                binding.cardGeminiApiKey.visibility = View.VISIBLE
+                binding.layoutManualSettings.visibility = View.GONE
+            }
             ProcessingMode.MANUAL -> {
                 binding.rbManual.isChecked = true
+                binding.cardGeminiApiKey.visibility = View.VISIBLE
                 binding.layoutManualSettings.visibility = View.VISIBLE
             }
         }

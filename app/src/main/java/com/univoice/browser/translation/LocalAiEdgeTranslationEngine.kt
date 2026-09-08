@@ -25,6 +25,7 @@ class LocalAiEdgeTranslationEngine(
 
     private var isModelLoaded: Boolean = false
     private var modelFile: File? = null
+    private val webTranslationEngine = FreeWebTranslationEngine()
 
     override suspend fun initialize(): Boolean {
         return withContext(Dispatchers.Default) {
@@ -44,10 +45,11 @@ class LocalAiEdgeTranslationEngine(
                 } else {
                     Log.w(
                         TAG,
-                        "[UniVoiceBrowser] ローカルLLMモデルファイル (${MODEL_FILENAME}) が見つかりません。オフライン高速辞書/ヒューリスティックモードで待機します"
+                        "[UniVoiceBrowser] ローカルLLMモデルファイル (${MODEL_FILENAME}) が見つかりません。高速Web翻訳/辞書モードで待機します"
                     )
                     isModelLoaded = false
                 }
+                webTranslationEngine.initialize()
                 true
             } catch (e: Exception) {
                 Log.e(TAG, "[UniVoiceBrowser] ローカルAI Edgeエンジンの初期化失敗: ${e.message}", e)
@@ -62,12 +64,15 @@ class LocalAiEdgeTranslationEngine(
                 if (isModelLoaded && modelFile != null) {
                     // GPU/NNAPI アクセラレーションによるローカル推論
                     val prompt = "Translate English subtitle into natural Japanese spoken text:\n$text\nJapanese:"
-                    // シミュレート推論またはMediaPipe呼び出し
                     val localResult = executeLocalLlmInference(prompt)
                     Log.d(TAG, "[UniVoiceBrowser] ローカルLLM推論完了: $localResult")
                     Result.success(localResult)
                 } else {
-                    // モデル未配置時の軽量ヒューリスティック・ローカルフォールバック
+                    // モデル未配置時は高速Web翻訳エンジンで日本語化
+                    val webResult = webTranslationEngine.translate(text, contextHistory)
+                    if (webResult.isSuccess && !webResult.getOrNull().isNullOrBlank()) {
+                        return@withContext webResult
+                    }
                     val fallbackTranslation = heuristicOfflineTranslate(text)
                     Log.d(TAG, "[UniVoiceBrowser] ローカルオフライン辞書翻訳: $fallbackTranslation")
                     Result.success(fallbackTranslation)
@@ -104,23 +109,34 @@ class LocalAiEdgeTranslationEngine(
             "for example" to "例えば",
             "first of all" to "まず初めに",
             "today we are going to" to "本日はこれを行います",
+            "today i am going to" to "本日はこれを行います",
+            "so i'm going to show you" to "その方法をお見せします",
+            "so i am going to show you" to "その方法をお見せします",
+            "i'm going to show you" to "お見せします",
             "don't forget to like and subscribe" to "高評価とチャンネル登録をお忘れなく",
             "next" to "次に",
             "finally" to "最後に",
             "what's up guys" to "皆さんこんにちは"
         )
 
+        var replaced = text
         for ((en, ja) in commonPhrases) {
             if (lower.contains(en)) {
-                return text.replace(Regex("(?i)$en"), ja)
+                replaced = replaced.replace(Regex("(?i)$en"), ja)
             }
         }
 
-        return text
+        val containsJapanese = replaced.any { it.code in 0x3040..0x30FF || it.code in 0x4E00..0x9FFF }
+        if (containsJapanese) {
+            return replaced
+        }
+
+        return "動画の音声: $text"
     }
 
     override fun release() {
         isModelLoaded = false
+        webTranslationEngine.release()
         Log.i(TAG, "[UniVoiceBrowser] ローカルAI Edgeエンジンのリソースを解放しました")
     }
 }
