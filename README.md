@@ -12,6 +12,19 @@
 [![UI Language](https://img.shields.io/badge/UI-Japanese%20Only%20%28100%25%29-red.svg)](#完全日本語ui設計)
 [![Build Status](https://img.shields.io/badge/Build-Passing-brightgreen.svg)]()
 [![Security](https://img.shields.io/badge/Security-Hardened-blue.svg)]()
+[![Release APK](https://img.shields.io/badge/APK_Download-v1.0.0_(51.7MB)-blueviolet.svg?logo=android)](release/UniVoiceBrowser-v1.0.0.apk)
+
+<p align="center">
+  <a href="https://github.com/iwa-kasoutuuuuuka/UniVoice-Browser/raw/main/release/UniVoiceBrowser-v1.0.0.apk">
+    <img src="https://img.shields.io/badge/📥_今すぐダウンロード-UniVoiceBrowser--v1.0.0.apk_(51.7MB)-2ea44f?style=for-the-badge&logo=android&logoColor=white" alt="APK直接ダウンロード" />
+  </a>
+</p>
+
+> [!TIP]
+> **ワンタップで今すぐインストール可能**: リリース版APK（署名済み）は上記バッジまたは以下のダイレクトリンクからダウンロードして、Android端末（Android 8.0以降 / Poco F6 Pro・Galaxy・Pixel・エミュレーター等）ですぐにご利用いただけます。
+> 
+> 🔗 **ダイレクトダウンロード**: [UniVoiceBrowser-v1.0.0.apk (約51.7MB)](https://github.com/iwa-kasoutuuuuuka/UniVoice-Browser/raw/main/release/UniVoiceBrowser-v1.0.0.apk)  
+> 🔗 **リポジトリ内ファイルパス**: [`release/UniVoiceBrowser-v1.0.0.apk`](release/UniVoiceBrowser-v1.0.0.apk)
 
 **UniVoice Browser** は、YouTubeなどの動画視聴時に元の外国語（英語等）音声をHTML5レベルで完全抑制（ミュート）し、リアルタイムに字幕をキャプチャ・翻訳して、流暢な日本語音声（Text-to-Speech）をオーバーレイ再生するAndroid専用の次世代AIブラウザです。
 
@@ -28,6 +41,7 @@
 ---
 
 ## 📑 目次
+- [📥 APKダウンロード (Direct Download)](#-apkダウンロード-direct-download)
 - [🌟 主な特長](#-主な特長)
 - [🎯 4つの処理モード](#-4つの処理モード-processing-modes)
 - [🎙️ 高度機能 (リップシンク・PiP・スクリプト学習)](#️-高度機能-動的リップシンクpipスクリプト学習)
@@ -67,6 +81,14 @@
    API切断やモデル未配備時でも `[UniVoiceBrowser]` ログと共に非侵入的オーバーレイバーへ警告表示し、即座に代替エンジン（ローカル辞書/システムTTS）へ自動フォールバック。
 9. **2層ハイブリッド広告ブロック（動画広告自動スキップ＆バナー除去）**:
    ネットワーク層（`AdBlockEngine`）での広告ドメイン・トラッカー遮断と、DOM/プレイヤー層での動画広告超高速自動スキップ＆バナーCSS消去を統合。広告字幕による翻訳エンジンの誤動作や Gemini API コストの浪費を完全に防止。
+10. **字幕(CC)スマート自動有効化＆誤OFF防止・状態検知ガイダンス**:
+    YouTubeモバイルの最新UIセレクタに追従し、字幕がオフの場合のみ1度だけ自動クリック。既にオンの場合は再トグルせず誤消去を完全防止。CCが未検知の場合は非侵入的バナーでユーザーを親切にガイド。
+11. **原音ワンタップ消音切替ボタン (`btnMuteToggle`)**:
+    トップナビゲーションバーのスピーカーアイコンから、いつでも「AI日本語吹き替えのみ（原音消音）」と「元動画の音声を出力」をワンタップで切り替え可能。
+12. **ゼロ遅延フォールバック (APIキー不要・即時発話)**:
+    Gemini APIキー未入力時やVOICEVOXモデル未配置時でも、ローカル辞書エンジンとAndroid標準TTS（端末内言語自動フォールバック搭載）により、アプリ初回インストール直後から即座に音声を再生。
+13. **横画面（ランドスケープ）最適化＆字幕コンパクトタップ切替**:
+    動画の全画面・横向き再生時にナビゲーションバーと字幕マージンを自動でスリム化。字幕カードのタップで原文やステータスを非表示化し、動画視聴を妨げないクリーンな視聴環境を提供。
 
 ---
 
@@ -387,7 +409,18 @@ e:/UniVoice Browser/
    cd "e:\UniVoice Browser"
    ```
 
-2. **デバッグ用 APK のビルド**:
+2. **リリース版 APK のビルド（署名済み・配布用）**:
+   ```bash
+   # Windows
+   .\gradlew.bat assembleRelease
+
+   # macOS / Linux
+   ./gradlew assembleRelease
+   ```
+   生成先: `app/build/outputs/apk/release/app-release.apk`  
+   （※リポジトリ直下の `release/UniVoiceBrowser-v1.0.0.apk` に同一バイナリが配置されています）
+
+3. **デバッグ用 APK のビルド**:
    ```bash
    # Windows
    .\gradlew.bat assembleDebug
@@ -395,15 +428,11 @@ e:/UniVoice Browser/
    # macOS / Linux
    ./gradlew assembleDebug
    ```
+   生成先: `app/build/outputs/apk/debug/app-debug.apk`
 
-3. **生成される APK ファイル**:
-   ```
-   app/build/outputs/apk/debug/app-debug.apk
-   ```
-
-4. **実機（Poco F6 Pro）へのインストール**:
+4. **実機（Poco F6 Pro等）またはエミュレーターへのワンタップインストール**:
    ```bash
-   adb install -r app/build/outputs/apk/debug/app-debug.apk
+   adb install -r release/UniVoiceBrowser-v1.0.0.apk
    ```
 
 ---

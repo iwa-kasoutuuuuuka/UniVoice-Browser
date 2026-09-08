@@ -23,29 +23,36 @@ class AndroidSystemTtsEngine(private val context: Context) : TtsEngine {
     }
 
     private var tts: TextToSpeech? = null
+    @Volatile
     private var isInitialized = false
-    private val initDeferred = CompletableDeferred<Boolean>()
+    private var initDeferred: CompletableDeferred<Boolean>? = null
 
     override suspend fun initialize(): Boolean {
+        if (isInitialized && tts != null) return true
         return withContext(Dispatchers.Main) {
             try {
+                val deferred = CompletableDeferred<Boolean>()
+                initDeferred = deferred
                 tts = TextToSpeech(context.applicationContext) { status ->
                     if (status == TextToSpeech.SUCCESS) {
                         val result = tts?.setLanguage(Locale.JAPANESE)
                         if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
-                            Log.w(TAG, "[UniVoiceBrowser] 日本語音声データが端末内に不足しています")
-                            initDeferred.complete(false)
+                            Log.w(TAG, "[UniVoiceBrowser] 日本語音声データが端末内に未配置です。デフォルト言語にフォールバックして再生を確保します")
+                            val defResult = tts?.setLanguage(Locale.getDefault())
+                            if (defResult == TextToSpeech.LANG_MISSING_DATA || defResult == TextToSpeech.LANG_NOT_SUPPORTED) {
+                                tts?.setLanguage(Locale.US)
+                            }
                         } else {
                             Log.i(TAG, "[UniVoiceBrowser] Android標準TTS (日本語) 初期化完了")
-                            isInitialized = true
-                            initDeferred.complete(true)
                         }
+                        isInitialized = true
+                        deferred.complete(true)
                     } else {
                         Log.e(TAG, "[UniVoiceBrowser] Android標準TTS 初期化ステータスエラー: $status")
-                        initDeferred.complete(false)
+                        deferred.complete(false)
                     }
                 }
-                initDeferred.await()
+                deferred.await()
             } catch (e: Exception) {
                 Log.e(TAG, "[UniVoiceBrowser] Android標準TTS 初期化例外: ${e.message}", e)
                 false

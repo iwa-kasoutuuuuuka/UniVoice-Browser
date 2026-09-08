@@ -78,7 +78,21 @@ object YouTubeScriptInjector {
             // ==========================================
             // 1. HTML5 <video> 音声の完全抑制 (Mute Enforcement)
             // ==========================================
-            const audioSuppressionEnabled = ${enableAudioSuppression};
+            let audioSuppressionEnabled = ${enableAudioSuppression};
+
+            window.__univoice_set_audio_suppression = function(enabled) {
+                audioSuppressionEnabled = !!enabled;
+                const videos = document.querySelectorAll('video');
+                videos.forEach(function(v) {
+                    if (audioSuppressionEnabled) {
+                        v.muted = true;
+                    } else {
+                        v.muted = false;
+                        v.volume = 1.0;
+                    }
+                });
+                log("原音ミュート切替: audioSuppressionEnabled=" + audioSuppressionEnabled);
+            };
 
             function enforceMute(video) {
                 if (!audioSuppressionEnabled || !video) return;
@@ -252,16 +266,76 @@ object YouTubeScriptInjector {
                 log("字幕MutationObserver設定完了");
             }
 
-            // YouTubeの字幕ボタンを自動有効化（未ONの場合）
+            // YouTubeの字幕ボタンを自動有効化（未ONの場合）＆状態通知
+            let lastReportedCaptionState = null;
             function ensureCaptionsEnabled() {
                 try {
-                    const subButton = document.querySelector('.ytp-subtitles-button');
-                    if (subButton && subButton.getAttribute('aria-pressed') === 'false') {
-                        subButton.click();
-                        log("YouTube字幕ボタンを自動クリックしました");
+                    // 1. YouTube HTML5 プレーヤーオブジェクトの字幕API確認
+                    const player = document.querySelector('#movie_player, .html5-video-player');
+                    if (player && typeof player.toggleSubtitlesOn === 'function') {
+                        const track = player.getOption ? player.getOption('captions', 'track') : null;
+                        if (!track) {
+                            player.toggleSubtitlesOn();
+                            log("YouTubeプレーヤーAPIで字幕をONにしました");
+                        }
+                    }
+
+                    // 2. モバイル/デスクトップ YouTube の字幕ボタン走査
+                    const ccSelectors = [
+                        '.ytp-subtitles-button',
+                        'button[aria-label*="字幕"]',
+                        'button[aria-label*="Captions"]',
+                        'button[aria-label*="Subtitles"]',
+                        '.ytp-chrome-top-buttons [aria-label*="字幕"]',
+                        'ytm-custom-control[aria-label*="字幕"]'
+                    ];
+
+                    let isCcActive = false;
+                    let foundButton = null;
+
+                    for (let i = 0; i < ccSelectors.length; i++) {
+                        const btn = document.querySelector(ccSelectors[i]);
+                        if (btn) {
+                            foundButton = btn;
+                            const pressed = btn.getAttribute('aria-pressed');
+                            const label = (btn.getAttribute('aria-label') || '').toLowerCase();
+                            
+                            // aria-pressed="true" またはラベルに「オフにする」が含まれていれば現在ON
+                            if (pressed === 'true' || label.indexOf('オフ') !== -1 || label.indexOf('turn off') !== -1) {
+                                isCcActive = true;
+                                break;
+                            } else if (pressed === 'false' || label.indexOf('オン') !== -1 || label.indexOf('turn on') !== -1) {
+                                isCcActive = false;
+                                break;
+                            }
+                        }
+                    }
+
+                    // 画面内に字幕セグメントが表示されている場合は確実にON
+                    const activeSegments = document.querySelectorAll('.ytp-caption-segment, .caption-window, .player-caption-window');
+                    if (activeSegments && activeSegments.length > 0) {
+                        isCcActive = true;
+                    }
+
+                    // OFFと判明しており、かつボタンが存在する場合は1度だけクリックして有効化
+                    if (!isCcActive && foundButton && typeof foundButton.click === 'function') {
+                        if (!window.__univoice_cc_clicked) {
+                            window.__univoice_cc_clicked = true;
+                            foundButton.click();
+                            log("YouTube字幕(CC)ボタンを自動クリックして有効化しました");
+                            isCcActive = true;
+                        }
+                    }
+
+                    // ネイティブ側への字幕有効状態の通知（状態変化時のみ）
+                    if (lastReportedCaptionState !== isCcActive) {
+                        lastReportedCaptionState = isCcActive;
+                        if (bridge && bridge.onCaptionStateChanged) {
+                            bridge.onCaptionStateChanged(isCcActive);
+                        }
                     }
                 } catch(e) {
-                    log("字幕ボタンクリック試行失敗: " + e.message);
+                    log("字幕ボタン処理試行例外: " + e.message);
                 }
             }
 
@@ -280,6 +354,19 @@ object YouTubeScriptInjector {
 
             observeCaptions();
             log("UniVoice JavaScript 初期化完了");
+        })();
+        """.trimIndent()
+    }
+
+    /**
+     * 実行中の動画に対して動的に原音ミュートのON/OFFを切り替えるスクリプト
+     */
+    fun buildToggleMuteScript(muted: Boolean): String {
+        return """
+        (function() {
+            if (typeof window.__univoice_set_audio_suppression === 'function') {
+                window.__univoice_set_audio_suppression($muted);
+            }
         })();
         """.trimIndent()
     }

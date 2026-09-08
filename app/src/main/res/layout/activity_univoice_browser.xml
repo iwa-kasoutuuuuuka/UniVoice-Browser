@@ -94,6 +94,15 @@
             android:contentDescription="スクリプト履歴"
             android:src="@drawable/ic_transcript" />
 
+        <!-- 原音ミュート切替ボタン -->
+        <ImageButton
+            android:id="@+id/btnMuteToggle"
+            android:layout_width="38dp"
+            android:layout_height="38dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="原音ミュート切替"
+            android:src="@drawable/ic_volume_off" />
+
         <!-- ピクチャー・イン・ピクチャー (PiP) ボタン -->
         <ImageButton
             android:id="@+id/btnPip"

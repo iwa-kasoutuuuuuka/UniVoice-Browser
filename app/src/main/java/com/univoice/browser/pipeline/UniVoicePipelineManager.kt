@@ -64,8 +64,15 @@ class UniVoicePipelineManager(
     private val _errorMessage = MutableStateFlow<String?>(null)
     val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
 
+    private val _captionGuidanceMessage = MutableStateFlow<String?>(null)
+    val captionGuidanceMessage: StateFlow<String?> = _captionGuidanceMessage.asStateFlow()
+
     private val _prefetchedCountFlow = MutableStateFlow(0)
     val prefetchedCountFlow: StateFlow<Int> = _prefetchedCountFlow.asStateFlow()
+
+    // 予備用システムTTS (モデル未配置またはAPIエラー時の即時フォールバック)
+    private val fallbackSystemTts = com.univoice.browser.tts.AndroidSystemTtsEngine(context)
+    private val fallbackLocalTranslation = com.univoice.browser.translation.LocalAiEdgeTranslationEngine(context)
 
     // スライディングウィンドウ・キャッシュ (12GB+ RAM最適化)
     private val slidingWindowQueue = ConcurrentLinkedQueue<UniVoiceSubtitleCue>()
@@ -77,6 +84,15 @@ class UniVoicePipelineManager(
     private var workerJob: Job? = null
 
     init {
+        // フォールバック用システムTTSの事前ウォームアップ
+        pipelineScope.launch(Dispatchers.Main) {
+            try {
+                fallbackSystemTts.initialize()
+            } catch (e: Exception) {
+                Log.w(TAG, "[UniVoiceBrowser] フォールバックTTS初期化待機: ${e.message}")
+            }
+        }
+
         // 設定変更の監視と動的再初期化
         pipelineScope.launch {
             configManager.settingsFlow.collect { settings ->
@@ -154,6 +170,7 @@ class UniVoicePipelineManager(
      * JSInterfaceから字幕を受信したときのエントリポイント
      */
     fun onSubtitleReceived(cue: UniVoiceSubtitleCue) {
+        _captionGuidanceMessage.value = null // 字幕受信成功によりガイダンスを解除
         _currentStatus.value = PipelineStatus.INTERCEPTING
         // スライディングウィンドウに追加
         slidingWindowQueue.add(cue)
@@ -163,6 +180,17 @@ class UniVoicePipelineManager(
 
         // チャンネルへ投入
         cueChannel.trySend(cue)
+    }
+
+    /**
+     * 字幕(CC)の有効化状態変更の通知
+     */
+    fun onCaptionStateChanged(isEnabled: Boolean) {
+        if (!isEnabled) {
+            _captionGuidanceMessage.value = "⚠️ 字幕(CC)がオフです。動画をタップして右上の[CC]を押してください"
+        } else {
+            _captionGuidanceMessage.value = null
+        }
     }
 
     /**
@@ -181,14 +209,18 @@ class UniVoicePipelineManager(
             _currentStatus.value = PipelineStatus.TRANSLATING
             val history = slidingWindowQueue.map { it.cleanText }
 
-            val transEngine = translationEngine ?: LocalAiEdgeTranslationEngine(context)
+            val transEngine = translationEngine ?: fallbackLocalTranslation
             val result = transEngine.translate(cleanText, history)
 
             translated = result.getOrElse { error ->
-                Log.w(TAG, "[UniVoiceBrowser] 翻訳失敗: ${error.message}。フォールバック表示を行います")
-                _errorMessage.value = "翻訳エラー: ${error.localizedMessage ?: "接続確認中"}"
-                // フォールバック: 原文テキストをそのまま利用して字幕停止を防ぐ
-                cleanText
+                Log.w(TAG, "[UniVoiceBrowser] 翻訳エンジン警告: ${error.message}。ローカル辞書フォールバックを実行")
+                if (settings.geminiApiKey.isBlank() && settings.effectiveTranslationEngine == TranslationEngineType.GEMINI_CLOUD) {
+                    _errorMessage.value = "💡 APIキー未設定のため簡易音声再生中 (設定からキー入力で高品質化)"
+                } else {
+                    _errorMessage.value = "翻訳注意: ${error.localizedMessage ?: "代替音声中"}"
+                }
+                // ローカル辞書/オフライン翻訳で日本語テキストを生成して音声合成へ繋ぐ
+                fallbackLocalTranslation.translate(cleanText, history).getOrDefault(cleanText)
             }
             translationCache[cleanText] = translated
         } else {
@@ -204,7 +236,7 @@ class UniVoicePipelineManager(
 
         // 2. 音声合成および再生 (動的リップシンク・タイムストレッチ適用)
         _currentStatus.value = PipelineStatus.SYNTHESIZING
-        val tts = ttsEngine ?: AndroidSystemTtsEngine(context)
+        val tts = ttsEngine ?: fallbackSystemTts
 
         // 字幕表示時間に合わせて発話速度をリアルタイムに自動微調整
         val dynamicSpeed = DynamicTimeStretcher.calculateOptimalSpeed(
@@ -221,8 +253,13 @@ class UniVoicePipelineManager(
         )
 
         ttsResult.onFailure { error ->
-            Log.w(TAG, "[UniVoiceBrowser] 音声合成エラー: ${error.message}", error)
-            _errorMessage.value = "音声合成警告: 代替出力中"
+            Log.w(TAG, "[UniVoiceBrowser] 音声合成エンジンエラー: ${error.message}。標準システムTTSで即時再生", error)
+            // モデル未配置等の場合は端末の標準日本語TTSで確実に音声を鳴らす
+            fallbackSystemTts.synthesizeAndPlay(
+                text = translated,
+                speed = dynamicSpeed,
+                pitch = settings.speechPitch
+            )
         }
 
         // 3. 次の字幕の先読み (Prefetch 3 cues ahead)
@@ -271,6 +308,7 @@ class UniVoicePipelineManager(
      */
     fun stopAudio() {
         ttsEngine?.stop()
+        fallbackSystemTts.stop()
         _currentStatus.value = PipelineStatus.IDLE
     }
 
@@ -282,6 +320,8 @@ class UniVoicePipelineManager(
         cueChannel.close()
         translationEngine?.release()
         ttsEngine?.release()
+        fallbackSystemTts.release()
+        fallbackLocalTranslation.release()
         translationCache.clear()
         slidingWindowQueue.clear()
         thermalManager.release()

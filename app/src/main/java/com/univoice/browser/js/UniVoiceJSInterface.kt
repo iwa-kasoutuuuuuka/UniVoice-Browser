@@ -13,7 +13,8 @@ class UniVoiceJSInterface(
     private val getCurrentUrlCallback: () -> String?,
     private val onSubtitleReceivedCallback: (UniVoiceSubtitleCue) -> Unit,
     private val onVideoStateChangedCallback: (isPlaying: Boolean, currentTimeMs: Long) -> Unit,
-    private val onAudioSuppressedCallback: (Boolean) -> Unit
+    private val onAudioSuppressedCallback: (Boolean) -> Unit,
+    private val onCaptionStateChangedCallback: (Boolean) -> Unit = {}
 ) {
 
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -85,6 +86,18 @@ class UniVoiceJSInterface(
         Log.i(TAG, "[UniVoiceBrowser] 音声抑制ステータス: $isSuppressed (video.muted = true / volume = 0)")
         mainHandler.post {
             onAudioSuppressedCallback(isSuppressed)
+        }
+    }
+
+    /**
+     * 字幕(CC)の有効化状態変更の通知
+     */
+    @JavascriptInterface
+    fun onCaptionStateChanged(isEnabled: Boolean) {
+        if (!isOriginAuthorized()) return
+        Log.d(TAG, "[UniVoiceBrowser] 字幕ステータス検知: isEnabled=$isEnabled")
+        mainHandler.post {
+            onCaptionStateChangedCallback(isEnabled)
         }
     }
 

@@ -44,6 +44,8 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
     @Volatile
     private var currentLoadedUrl: String = DEFAULT_HOMEPAGE
 
+    private var isNativeAudioMuted: Boolean = true
+
     override fun attachBaseContext(newBase: android.content.Context) {
         val locale = java.util.Locale.JAPANESE
         java.util.Locale.setDefault(locale)
@@ -62,6 +64,7 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
 
         setupNavigationControls()
         setupWebView()
+        applyOrientationLayout(resources.configuration.orientation)
         observePipelineStates()
 
         // 初期ページ読み込み (日本語クエリ・ヘッダー付き)
@@ -101,6 +104,15 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
             startActivity(Intent(this, UniVoiceTranscriptActivity::class.java))
         }
 
+        binding.btnMuteToggle.setOnClickListener {
+            isNativeAudioMuted = !isNativeAudioMuted
+            val iconRes = if (isNativeAudioMuted) R.drawable.ic_volume_off else R.drawable.ic_volume_up
+            binding.btnMuteToggle.setImageResource(iconRes)
+            binding.wvBrowser.evaluateJavascript(YouTubeScriptInjector.buildToggleMuteScript(isNativeAudioMuted), null)
+            val msg = if (isNativeAudioMuted) "原音を消音しました (AI音声のみ)" else "原音を出力しています"
+            android.widget.Toast.makeText(this, msg, android.widget.Toast.LENGTH_SHORT).show()
+        }
+
         binding.btnPip.setOnClickListener {
             enterPipMode()
         }
@@ -111,6 +123,22 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
 
         binding.btnDismissError.setOnClickListener {
             pipelineManager.clearError()
+            pipelineManager.onCaptionStateChanged(true)
+            binding.layoutErrorOverlay.visibility = View.GONE
+        }
+
+        // 字幕オーバーレイのタップでコンパクト表示/詳細表示を切替可能に
+        binding.cardSubtitleOverlay.setOnClickListener {
+            val isOriginalVisible = binding.tvOriginalSubtitle.visibility == View.VISIBLE
+            if (isOriginalVisible) {
+                binding.tvOriginalSubtitle.visibility = View.GONE
+                binding.tvPrefetchCount.visibility = View.GONE
+            } else {
+                if (pipelineManager.currentCue.value != null) {
+                    binding.tvOriginalSubtitle.visibility = View.VISIBLE
+                }
+                binding.tvPrefetchCount.visibility = View.VISIBLE
+            }
         }
 
         // URL入力ハンドリング
@@ -195,6 +223,9 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
             },
             onAudioSuppressedCallback = { isSuppressed ->
                 Log.d(TAG, "[UniVoiceBrowser] ネイティブ音声抑制確認: $isSuppressed")
+            },
+            onCaptionStateChangedCallback = { isEnabled ->
+                pipelineManager.onCaptionStateChanged(isEnabled)
             }
         )
         webView.addJavascriptInterface(jsInterface, UniVoiceJSInterface.INTERFACE_NAME)
@@ -336,17 +367,47 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
             }
         }
 
-        // 非侵入的エラーオーバーレイの表示制御
+        // 非侵入的エラーおよび字幕ガイダンスのオーバーレイ表示制御
         lifecycleScope.launch {
-            pipelineManager.errorMessage.collectLatest { error ->
-                if (error.isNullOrBlank()) {
+            kotlinx.coroutines.flow.combine(
+                pipelineManager.errorMessage,
+                pipelineManager.captionGuidanceMessage
+            ) { error, guidance ->
+                error ?: guidance
+            }.collectLatest { alertText ->
+                if (alertText.isNullOrBlank()) {
                     binding.layoutErrorOverlay.visibility = View.GONE
                 } else {
                     binding.layoutErrorOverlay.visibility = View.VISIBLE
-                    binding.tvErrorMessage.text = error
+                    binding.tvErrorMessage.text = alertText
                 }
             }
         }
+    }
+
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        applyOrientationLayout(newConfig.orientation)
+    }
+
+    /**
+     * 画面の向き（縦画面・横画面）に応じたUI最適化
+     */
+    private fun applyOrientationLayout(orientation: Int) {
+        val isLandscape = orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+        val density = resources.displayMetrics.density
+
+        // 横画面時はナビゲーションバーをスリム化して動画領域を最大化
+        val navLayoutParams = binding.layoutNavBar.layoutParams
+        navLayoutParams.height = if (isLandscape) (44 * density).toInt() else (56 * density).toInt()
+        binding.layoutNavBar.layoutParams = navLayoutParams
+
+        // 横画面時はフローティング字幕オーバーレイの余白を縮小
+        val cardLayoutParams = binding.cardSubtitleOverlay.layoutParams as androidx.constraintlayout.widget.ConstraintLayout.LayoutParams
+        cardLayoutParams.bottomMargin = if (isLandscape) (8 * density).toInt() else (24 * density).toInt()
+        cardLayoutParams.marginStart = if (isLandscape) (32 * density).toInt() else (16 * density).toInt()
+        cardLayoutParams.marginEnd = if (isLandscape) (32 * density).toInt() else (16 * density).toInt()
+        binding.cardSubtitleOverlay.layoutParams = cardLayoutParams
     }
 
     override fun onBackPressed() {
