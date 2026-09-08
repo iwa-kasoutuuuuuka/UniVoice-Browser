@@ -42,6 +42,7 @@ class UniVoiceConfigManager private constructor(context: Context) {
         private const val KEY_SPEECH_SPEED = "key_speech_speed"
         private const val KEY_SPEECH_PITCH = "key_speech_pitch"
         private const val KEY_PREFETCH_COUNT = "key_prefetch_count"
+        private const val KEY_AD_BLOCK_ENABLED = "key_ad_block_enabled"
 
         @Volatile
         private var instance: UniVoiceConfigManager? = null
@@ -74,6 +75,7 @@ class UniVoiceConfigManager private constructor(context: Context) {
         val speed = prefs.getFloat(KEY_SPEECH_SPEED, 1.0f)
         val pitch = prefs.getFloat(KEY_SPEECH_PITCH, 1.0f)
         val prefetchCount = prefs.getInt(KEY_PREFETCH_COUNT, 3)
+        val adBlock = prefs.getBoolean(KEY_AD_BLOCK_ENABLED, true)
 
         return UniVoiceSettings(
             currentMode = currentMode,
@@ -86,7 +88,8 @@ class UniVoiceConfigManager private constructor(context: Context) {
             audioSuppressionEnabled = audioSuppression,
             speechSpeed = speed,
             speechPitch = pitch,
-            prefetchCount = prefetchCount
+            prefetchCount = prefetchCount,
+            adBlockEnabled = adBlock
         )
     }
 
@@ -106,11 +109,12 @@ class UniVoiceConfigManager private constructor(context: Context) {
             putFloat(KEY_SPEECH_SPEED, newSettings.speechSpeed)
             putFloat(KEY_SPEECH_PITCH, newSettings.speechPitch)
             putInt(KEY_PREFETCH_COUNT, newSettings.prefetchCount)
+            putBoolean(KEY_AD_BLOCK_ENABLED, newSettings.adBlockEnabled)
             apply()
         }
 
         _settingsFlow.value = newSettings
-        Log.i(TAG, "[UniVoiceBrowser] 設定を保存しました。現在のモード: ${newSettings.currentMode.titleJapanese}")
+        Log.i(TAG, "[UniVoiceBrowser] 設定を保存しました。現在のモード: ${newSettings.currentMode.titleJapanese}, 広告ブロック: ${newSettings.adBlockEnabled}")
     }
 
     /**
@@ -118,6 +122,14 @@ class UniVoiceConfigManager private constructor(context: Context) {
      */
     fun setProcessingMode(mode: ProcessingMode) {
         val updated = _settingsFlow.value.copy(currentMode = mode)
+        updateSettings(updated)
+    }
+
+    /**
+     * 広告ブロックのON/OFF切り替え
+     */
+    fun setAdBlockEnabled(enabled: Boolean) {
+        val updated = _settingsFlow.value.copy(adBlockEnabled = enabled)
         updateSettings(updated)
     }
 
@@ -133,7 +145,8 @@ class UniVoiceConfigManager private constructor(context: Context) {
             audioSuppressionEnabled = true,
             speechSpeed = 1.0f,
             speechPitch = 1.0f,
-            prefetchCount = 3
+            prefetchCount = 3,
+            adBlockEnabled = true
         )
         updateSettings(defaults)
         Log.i(TAG, "[UniVoiceBrowser] 推奨デフォルト設定（最適構成）にリセットしました")

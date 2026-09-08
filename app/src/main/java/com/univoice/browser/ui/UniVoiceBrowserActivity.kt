@@ -9,6 +9,7 @@ import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -188,6 +189,14 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                 return false // アプリ内WebViewで常に遷移
             }
+
+            override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
+                val requestUrl = request?.url?.toString()
+                if (configManager.currentSettings.adBlockEnabled && com.univoice.browser.adblock.AdBlockEngine.shouldBlock(requestUrl)) {
+                    return com.univoice.browser.adblock.AdBlockEngine.createEmptyResponse()
+                }
+                return super.shouldInterceptRequest(view, request)
+            }
         }
 
         webView.webChromeClient = object : WebChromeClient() {
@@ -201,13 +210,14 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
     }
 
     /**
-     * YouTube URL判定と音声抑制・字幕取得スクリプトの注入
+     * YouTube URL判定と音声抑制・字幕取得・広告ブロックスクリプトの注入
      */
     private fun checkAndInjectYouTubeScripts(url: String?) {
         if (YouTubeScriptInjector.isYouTubeUrl(url)) {
-            Log.i(TAG, "[UniVoiceBrowser] YouTube動画ページを検知しました。音声ミュート強制＆字幕インターセプトスクリプトを注入します: $url")
+            Log.i(TAG, "[UniVoiceBrowser] YouTube動画ページを検知しました。音声ミュート強制＆字幕インターセプト＆広告ブロックスクリプトを注入します: $url")
             val isAudioSuppression = configManager.currentSettings.audioSuppressionEnabled
-            val jsPayload = YouTubeScriptInjector.buildInjectionScript(isAudioSuppression)
+            val isAdBlockEnabled = configManager.currentSettings.adBlockEnabled
+            val jsPayload = YouTubeScriptInjector.buildInjectionScript(isAudioSuppression, isAdBlockEnabled)
             binding.wvBrowser.evaluateJavascript(jsPayload) { result ->
                 Log.d(TAG, "[UniVoiceBrowser] スクリプト評価完了: $result")
             }

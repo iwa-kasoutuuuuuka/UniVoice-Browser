@@ -386,6 +386,31 @@
                         android:layout_marginBottom="16dp"
                         android:background="@color/divider_color" />
 
+                    <!-- 広告ブロックスイッチ -->
+                    <com.google.android.material.switchmaterial.SwitchMaterial
+                        android:id="@+id/switchAdBlock"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:checked="true"
+                        android:text="広告ブロック機能 (動画広告スキップ＆バナー除去)"
+                        android:textColor="@color/on_surface"
+                        android:textSize="14sp"
+                        app:useMaterialThemeColors="true" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginBottom="16dp"
+                        android:text="YouTube動画広告を高速自動スキップし、プロモーション枠や広告トラッカー通信を遮断します。広告による翻訳エンジンの誤動作やAPIコスト浪費を防ぎます。"
+                        android:textColor="@color/on_surface_variant"
+                        android:textSize="12sp" />
+
+                    <View
+                        android:layout_width="match_parent"
+                        android:layout_height="1dp"
+                        android:layout_marginBottom="16dp"
+                        android:background="@color/divider_color" />
+
                     <!-- 発話速度スライダー -->
                     <TextView
                         android:id="@+id/tvTtsSpeedLabel"
