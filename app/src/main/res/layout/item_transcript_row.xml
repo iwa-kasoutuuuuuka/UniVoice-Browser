@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginBottom="8dp"
+    app:cardBackgroundColor="@color/surface"
+    app:cardCornerRadius="10dp"
+    app:cardElevation="0dp"
+    app:strokeColor="@color/divider_color"
+    app:strokeWidth="1dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="12dp">
+
+        <TextView
+            android:id="@+id/tvRowTimestamp"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:background="@drawable/bg_status_badge"
+            android:paddingStart="6dp"
+            android:paddingTop="2dp"
+            android:paddingEnd="6dp"
+            android:paddingBottom="2dp"
+            android:text="00:15"
+            android:textColor="@color/primary"
+            android:textSize="11sp"
+            android:textStyle="bold" />
+
+        <!-- 日本語翻訳 (強調) -->
+        <TextView
+            android:id="@+id/tvRowJapanese"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:text="日本語翻訳テキスト"
+            android:textColor="@color/on_surface"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+
+        <!-- 英語原文 -->
+        <TextView
+            android:id="@+id/tvRowEnglish"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="3dp"
+            android:text="Original English Subtitle"
+            android:textColor="@color/on_surface_variant"
+            android:textSize="12sp" />
+
+    </LinearLayout>
+</com.google.android.material.card.MaterialCardView>

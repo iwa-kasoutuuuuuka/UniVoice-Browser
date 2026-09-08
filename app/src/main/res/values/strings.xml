@@ -1,0 +1,70 @@
+<resources>
+    <string name="app_name">UniVoice ブラウザ</string>
+    <string name="title_settings">UniVoice 動作設定</string>
+
+    <!-- ナビゲーションバー -->
+    <string name="nav_back">戻る</string>
+    <string name="nav_forward">進む</string>
+    <string name="nav_reload">更新</string>
+    <string name="nav_settings">設定</string>
+    <string name="url_hint">YouTubeのURLを入力または検索</string>
+    <string name="btn_go">移動</string>
+
+    <!-- 設定画面セクション -->
+    <string name="section_modes">動画翻訳・音声合成 動作モード</string>
+    <string name="section_manual_config">カスタム詳細設定 (手動モード時)</string>
+    <string name="section_system_perf">ハードウェア・動作制御</string>
+
+    <!-- 4つの処理モード -->
+    <string name="mode_pure_local_title">完全ローカル</string>
+    <string name="mode_pure_local_desc">端末内AIモデル（Google AI Edge / MediaPipe）とローカルAI音声エンジン（VOICEVOX ONNX）のみで処理。Snapdragon 8 Gen 2のNPU/GPUハードウェアアクセラレーションを活用し、完全オフラインかつ高速に動作します。</string>
+
+    <string name="mode_pure_api_title">完全API</string>
+    <string name="mode_pure_api_desc">クラウドGemini APIで高品質に翻訳し、Edge TTS等のクラウドAPIでストリーミング音声合成。端末負荷を最小限に抑え、軽量に動作します。</string>
+
+    <string name="mode_hybrid_optimal_title">最適構成 (推奨)</string>
+    <string name="mode_hybrid_optimal_desc">翻訳にはクラウドGemini APIの高精度な文脈把握を用い、音声合成は端末内のローカルAI音声エンジンで即時生成。3字幕先読みバッファによりネットワーク再生遅延を極限まで低減します。</string>
+
+    <string name="mode_manual_title">手動設定</string>
+    <string name="mode_manual_desc">翻訳エンジン、音声合成エンジン、APIキー、エンドポイントなどを個別に自由に組み合わせます。</string>
+
+    <!-- 手動設定項目 -->
+    <string name="label_translation_engine">翻訳エンジンの選択</string>
+    <string name="engine_gemini_cloud">Google Gemini クラウドAPI</string>
+    <string name="engine_local_edge">ローカルAI Edge (Gemma 2B / Llama 3 - NPU加速)</string>
+
+    <string name="label_tts_engine">音声合成エンジンの選択</string>
+    <string name="tts_local_onnx">ローカルAI音声 (VOICEVOX ONNX - NNAPI加速)</string>
+    <string name="tts_cloud_edge">Microsoft Edge TTS (クラウドストリーミング)</string>
+    <string name="tts_android_system">Android システム標準TTS (軽量フォールバック)</string>
+
+    <string name="label_gemini_api_key">Gemini APIキー</string>
+    <string name="hint_gemini_api_key">Gemini APIキーを入力してください</string>
+
+    <string name="label_tts_speed">発話速度倍率: %1$.1f倍</string>
+    <string name="label_tts_pitch">音声ピッチ: %1$.1f</string>
+
+    <string name="label_hardware_accel">Snapdragon NPU/GPU ハードウェアアクセラレーション</string>
+    <string name="desc_hardware_accel">NNAPIおよびGPUデリゲートを強制適用し、推論遅延を最小化します</string>
+
+    <string name="label_audio_suppression">動画の元音声を完全ミュート</string>
+    <string name="desc_audio_suppression">英語等の元音声をHTML5レベルで強制ミュートし、日本語翻訳音声のみをクリアに再生します</string>
+
+    <!-- 操作ボタン -->
+    <string name="btn_save">設定を保存して適用</string>
+    <string name="btn_reset">推奨デフォルトに戻す</string>
+    <string name="msg_saved">設定を保存し、パイプラインを再構築しました</string>
+
+    <!-- ステータス・エラー表示 (オーバーレイ) -->
+    <string name="status_mode_prefix">現在のモード: %1$s</string>
+    <string name="status_ready">UniVoice 準備完了</string>
+    <string name="status_youtube_detected">YouTube動画を検出 - 音声抑制＆字幕取得を開始</string>
+    <string name="status_translating">翻訳中 (先読みバッファ稼働中)...</string>
+    <string name="status_speaking">日本語音声を再生中</string>
+    <string name="status_idle">字幕待機中</string>
+
+    <string name="error_api_key_missing">Gemini APIキーが未設定です。設定画面からキーを入力してください。</string>
+    <string name="error_translation_failed">翻訳エラーが発生しました。字幕テキストをそのまま引き継ぎます。</string>
+    <string name="error_tts_failed">音声合成エラーが発生しました。代替TTSで復旧を試みています。</string>
+    <string name="error_network_unavailable">ネットワークが利用できません。ローカルモードへの切り替えを推奨します。</string>
+</resources>

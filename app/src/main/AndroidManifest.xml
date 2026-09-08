@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    package="com.univoice.browser">
+
+    <!-- インターネットおよびネットワークアクセス権限 -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <application
+        android:allowBackup="true"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.UniVoiceBrowser"
+        android:hardwareAccelerated="true"
+        android:largeHeap="true"
+        android:networkSecurityConfig="@xml/network_security_config"
+        tools:targetApi="34">
+
+        <!-- メインブラウザ画面 (PiP & ハードウェアアクセラレーション対応) -->
+        <activity
+            android:name=".ui.UniVoiceBrowserActivity"
+            android:exported="true"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|smallestScreenSize"
+            android:hardwareAccelerated="true"
+            android:supportsPictureInPicture="true"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="http" />
+                <data android:scheme="https" />
+            </intent-filter>
+        </activity>
+
+        <!-- 設定画面（4つの動作モード切り替え） -->
+        <activity
+            android:name=".ui.UniVoiceSettingsActivity"
+            android:exported="false"
+            android:label="@string/title_settings"
+            android:parentActivityName=".ui.UniVoiceBrowserActivity">
+            <meta-data
+                android:name="android.support.PARENT_ACTIVITY"
+                android:value=".ui.UniVoiceBrowserActivity" />
+        </activity>
+
+        <!-- 日英対訳スクリプト履歴画面 -->
+        <activity
+            android:name=".ui.UniVoiceTranscriptActivity"
+            android:exported="false"
+            android:label="日英対訳スクリプト履歴"
+            android:parentActivityName=".ui.UniVoiceBrowserActivity">
+            <meta-data
+                android:name="android.support.PARENT_ACTIVITY"
+                android:value=".ui.UniVoiceBrowserActivity" />
+        </activity>
+
+    </application>
+
+</manifest>

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<full-backup-content>
+    <!-- セキュリティ強化: APIキーを含む設定ファイルをバックアップ対象から除外 -->
+    <exclude domain="sharedpref" path="univoice_browser_preferences.xml" />
+    <include domain="sharedpref" path="." />
+</full-backup-content>

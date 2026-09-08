@@ -1,0 +1,516 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.coordinatorlayout.widget.CoordinatorLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/background">
+
+    <!-- アプリバー -->
+    <com.google.android.material.appbar.AppBarLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@color/surface">
+
+        <com.google.android.material.appbar.MaterialToolbar
+            android:id="@+id/toolbarSettings"
+            android:layout_width="match_parent"
+            android:layout_height="?attr/actionBarSize"
+            app:navigationIcon="@drawable/ic_arrow_back"
+            app:title="@string/title_settings"
+            app:titleTextColor="@color/on_surface" />
+    </com.google.android.material.appbar.AppBarLayout>
+
+    <androidx.core.widget.NestedScrollView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        app:layout_behavior="@string/appbar_scrolling_view_behavior">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <!-- 端末仕様最適化インジケーター & ブランドロゴ -->
+            <com.google.android.material.card.MaterialCardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="16dp"
+                app:cardBackgroundColor="@color/surface_variant"
+                app:cardCornerRadius="12dp"
+                app:cardElevation="0dp"
+                app:strokeColor="@color/primary"
+                app:strokeWidth="1dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:padding="14dp">
+
+                    <com.google.android.material.imageview.ShapeableImageView
+                        android:layout_width="48dp"
+                        android:layout_height="48dp"
+                        android:layout_marginEnd="12dp"
+                        android:scaleType="centerCrop"
+                        android:src="@drawable/ic_univoice_logo"
+                        app:shapeAppearanceOverlay="@style/ShapeAppearance.Material3.Corner.Medium" />
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="UniVoice Browser"
+                            android:textColor="@color/primary"
+                            android:textSize="15sp"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="2dp"
+                            android:text="Poco F6 Pro (Snapdragon 8 Gen 2 / 12GB+ RAM) 最適化済"
+                            android:textColor="@color/on_surface_variant"
+                            android:textSize="12sp" />
+                    </LinearLayout>
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- セクション1: 動作モードの選択 -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="8dp"
+                android:text="@string/section_modes"
+                android:textColor="@color/on_surface"
+                android:textSize="16sp"
+                android:textStyle="bold" />
+
+            <com.google.android.material.card.MaterialCardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="16dp"
+                app:cardBackgroundColor="@color/surface"
+                app:cardCornerRadius="12dp"
+                app:cardElevation="2dp"
+                app:strokeColor="@color/divider_color"
+                app:strokeWidth="1dp">
+
+                <RadioGroup
+                    android:id="@+id/rgProcessingModes"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:padding="12dp">
+
+                    <!-- モード1: 完全ローカル -->
+                    <RadioButton
+                        android:id="@+id/rbPureLocal"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:buttonTint="@color/primary"
+                        android:text="@string/mode_pure_local_title"
+                        android:textColor="@color/on_surface"
+                        android:textSize="15sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="32dp"
+                        android:layout_marginBottom="12dp"
+                        android:text="@string/mode_pure_local_desc"
+                        android:textColor="@color/on_surface_variant"
+                        android:textSize="12sp" />
+
+                    <View
+                        android:layout_width="match_parent"
+                        android:layout_height="1dp"
+                        android:layout_marginBottom="8dp"
+                        android:background="@color/divider_color" />
+
+                    <!-- モード2: 完全API -->
+                    <RadioButton
+                        android:id="@+id/rbPureApi"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:buttonTint="@color/primary"
+                        android:text="@string/mode_pure_api_title"
+                        android:textColor="@color/on_surface"
+                        android:textSize="15sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="32dp"
+                        android:layout_marginBottom="12dp"
+                        android:text="@string/mode_pure_api_desc"
+                        android:textColor="@color/on_surface_variant"
+                        android:textSize="12sp" />
+
+                    <View
+                        android:layout_width="match_parent"
+                        android:layout_height="1dp"
+                        android:layout_marginBottom="8dp"
+                        android:background="@color/divider_color" />
+
+                    <!-- モード3: 最適構成 (推奨) -->
+                    <RadioButton
+                        android:id="@+id/rbHybridOptimal"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:buttonTint="@color/primary"
+                        android:text="@string/mode_hybrid_optimal_title"
+                        android:textColor="@color/on_surface"
+                        android:textSize="15sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="32dp"
+                        android:layout_marginBottom="12dp"
+                        android:text="@string/mode_hybrid_optimal_desc"
+                        android:textColor="@color/on_surface_variant"
+                        android:textSize="12sp" />
+
+                    <View
+                        android:layout_width="match_parent"
+                        android:layout_height="1dp"
+                        android:layout_marginBottom="8dp"
+                        android:background="@color/divider_color" />
+
+                    <!-- モード4: 手動設定 -->
+                    <RadioButton
+                        android:id="@+id/rbManual"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:buttonTint="@color/primary"
+                        android:text="@string/mode_manual_title"
+                        android:textColor="@color/on_surface"
+                        android:textSize="15sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="32dp"
+                        android:text="@string/mode_manual_desc"
+                        android:textColor="@color/on_surface_variant"
+                        android:textSize="12sp" />
+
+                </RadioGroup>
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- セクション2: 手動詳細設定 (手動モード選択時に動的展開) -->
+            <LinearLayout
+                android:id="@+id/layoutManualSettings"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:visibility="gone"
+                tools:visibility="visible">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="8dp"
+                    android:text="@string/section_manual_config"
+                    android:textColor="@color/on_surface"
+                    android:textSize="16sp"
+                    android:textStyle="bold" />
+
+                <com.google.android.material.card.MaterialCardView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="16dp"
+                    app:cardBackgroundColor="@color/surface"
+                    app:cardCornerRadius="12dp"
+                    app:cardElevation="2dp"
+                    app:strokeColor="@color/divider_color"
+                    app:strokeWidth="1dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:padding="16dp">
+
+                        <!-- 翻訳エンジンドロップダウン -->
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="@string/label_translation_engine"
+                            android:textColor="@color/on_surface"
+                            android:textSize="14sp"
+                            android:textStyle="bold" />
+
+                        <Spinner
+                            android:id="@+id/spinnerTranslationEngine"
+                            android:layout_width="match_parent"
+                            android:layout_height="48dp"
+                            android:layout_marginTop="8dp"
+                            android:layout_marginBottom="16dp"
+                            android:background="@drawable/bg_rounded_card"
+                            android:paddingStart="12dp"
+                            android:paddingEnd="12dp" />
+
+                        <!-- 音声合成エンジンドロップダウン -->
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="@string/label_tts_engine"
+                            android:textColor="@color/on_surface"
+                            android:textSize="14sp"
+                            android:textStyle="bold" />
+
+                        <Spinner
+                            android:id="@+id/spinnerTtsEngine"
+                            android:layout_width="match_parent"
+                            android:layout_height="48dp"
+                            android:layout_marginTop="8dp"
+                            android:layout_marginBottom="16dp"
+                            android:background="@drawable/bg_rounded_card"
+                            android:paddingStart="12dp"
+                            android:paddingEnd="12dp" />
+
+                        <!-- Gemini APIキー入力 -->
+                        <com.google.android.material.textfield.TextInputLayout
+                            android:id="@+id/tilGeminiApiKey"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:hint="@string/hint_gemini_api_key"
+                            android:textColorHint="@color/on_surface_variant"
+                            app:boxBackgroundColor="@color/surface_variant"
+                            app:boxCornerRadiusBottomEnd="8dp"
+                            app:boxCornerRadiusBottomStart="8dp"
+                            app:boxCornerRadiusTopEnd="8dp"
+                            app:boxCornerRadiusTopStart="8dp"
+                            app:boxStrokeColor="@color/primary"
+                            app:endIconMode="password_toggle"
+                            app:endIconTint="@color/on_surface_variant">
+
+                            <com.google.android.material.textfield.TextInputEditText
+                                android:id="@+id/etGeminiApiKey"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:inputType="textPassword"
+                                android:textColor="@color/on_surface"
+                                android:textSize="14sp" />
+                        </com.google.android.material.textfield.TextInputLayout>
+
+                    </LinearLayout>
+                </com.google.android.material.card.MaterialCardView>
+            </LinearLayout>
+
+            <!-- セクション3: ハードウェア・動作制御 -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="8dp"
+                android:text="@string/section_system_perf"
+                android:textColor="@color/on_surface"
+                android:textSize="16sp"
+                android:textStyle="bold" />
+
+            <com.google.android.material.card.MaterialCardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="24dp"
+                app:cardBackgroundColor="@color/surface"
+                app:cardCornerRadius="12dp"
+                app:cardElevation="2dp"
+                app:strokeColor="@color/divider_color"
+                app:strokeWidth="1dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <!-- ハードウェアアクセラレーションスイッチ -->
+                    <com.google.android.material.switchmaterial.SwitchMaterial
+                        android:id="@+id/switchHardwareAccel"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:checked="true"
+                        android:text="@string/label_hardware_accel"
+                        android:textColor="@color/on_surface"
+                        android:textSize="14sp"
+                        app:useMaterialThemeColors="true" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginBottom="16dp"
+                        android:text="@string/desc_hardware_accel"
+                        android:textColor="@color/on_surface_variant"
+                        android:textSize="12sp" />
+
+                    <View
+                        android:layout_width="match_parent"
+                        android:layout_height="1dp"
+                        android:layout_marginBottom="16dp"
+                        android:background="@color/divider_color" />
+
+                    <!-- 音声抑制スイッチ -->
+                    <com.google.android.material.switchmaterial.SwitchMaterial
+                        android:id="@+id/switchAudioSuppression"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:checked="true"
+                        android:text="@string/label_audio_suppression"
+                        android:textColor="@color/on_surface"
+                        android:textSize="14sp"
+                        app:useMaterialThemeColors="true" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginBottom="16dp"
+                        android:text="@string/desc_audio_suppression"
+                        android:textColor="@color/on_surface_variant"
+                        android:textSize="12sp" />
+
+                    <View
+                        android:layout_width="match_parent"
+                        android:layout_height="1dp"
+                        android:layout_marginBottom="16dp"
+                        android:background="@color/divider_color" />
+
+                    <!-- 発話速度スライダー -->
+                    <TextView
+                        android:id="@+id/tvTtsSpeedLabel"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="発話速度倍率: 1.0倍"
+                        android:textColor="@color/on_surface"
+                        android:textSize="14sp" />
+
+                    <com.google.android.material.slider.Slider
+                        android:id="@+id/sliderTtsSpeed"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:stepSize="0.1"
+                        android:value="1.0"
+                        android:valueFrom="0.5"
+                        android:valueTo="2.0"
+                        app:thumbColor="@color/primary"
+                        app:trackColorActive="@color/primary"
+                        app:trackColorInactive="@color/surface_variant" />
+
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- セクション4: オンデバイスAIモデル管理 -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="8dp"
+                android:text="オンデバイスAIモデル管理 (完全ローカル用)"
+                android:textColor="@color/on_surface"
+                android:textSize="16sp"
+                android:textStyle="bold" />
+
+            <com.google.android.material.card.MaterialCardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="16dp"
+                app:cardBackgroundColor="@color/surface"
+                app:cardCornerRadius="12dp"
+                app:cardElevation="2dp"
+                app:strokeColor="@color/divider_color"
+                app:strokeWidth="1dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <TextView
+                        android:id="@+id/tvGemmaStatus"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Gemma 2B LLM (MediaPipe): 確認中..."
+                        android:textColor="@color/on_surface"
+                        android:textSize="13sp" />
+
+                    <TextView
+                        android:id="@+id/tvVoicevoxStatus"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:text="VOICEVOX ONNX音声モデル: 確認中..."
+                        android:textColor="@color/on_surface"
+                        android:textSize="13sp" />
+
+                    <ProgressBar
+                        android:id="@+id/pbModelDownload"
+                        style="?android:attr/progressBarStyleHorizontal"
+                        android:layout_width="match_parent"
+                        android:layout_height="6dp"
+                        android:layout_marginTop="10dp"
+                        android:progressTint="@color/primary"
+                        android:visibility="gone" />
+
+                    <Button
+                        android:id="@+id/btnDownloadModels"
+                        style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                        android:layout_width="match_parent"
+                        android:layout_height="44dp"
+                        android:layout_marginTop="12dp"
+                        android:text="ローカルAIモデルを配備 / 更新"
+                        android:textColor="@color/primary"
+                        android:textSize="13sp"
+                        app:strokeColor="@color/primary" />
+
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- セクション5: 語学学習・日英対訳スクリプト -->
+            <Button
+                android:id="@+id/btnOpenTranscripts"
+                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:layout_marginBottom="24dp"
+                android:text="📖 蓄積された日英対訳スクリプト履歴を表示"
+                android:textColor="@color/on_surface"
+                android:textSize="14sp"
+                app:strokeColor="@color/divider_color" />
+
+            <!-- アクションボタン -->
+            <Button
+                android:id="@+id/btnSaveSettings"
+                android:layout_width="match_parent"
+                android:layout_height="54dp"
+                android:backgroundTint="@color/primary"
+                android:text="@string/btn_save"
+                android:textColor="@color/on_primary"
+                android:textSize="15sp"
+                android:textStyle="bold"
+                app:cornerRadius="10dp" />
+
+            <Button
+                android:id="@+id/btnResetDefaults"
+                style="@style/Widget.MaterialComponents.Button.TextButton"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="@string/btn_reset"
+                android:textColor="@color/on_surface_variant"
+                android:textSize="14sp" />
+
+        </LinearLayout>
+    </androidx.core.widget.NestedScrollView>
+
+</androidx.coordinatorlayout.widget.CoordinatorLayout>
