@@ -5,7 +5,9 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.os.Bundle
 import android.util.Log
+import android.view.MotionEvent
 import android.view.View
+import android.view.ViewConfiguration
 import android.view.inputmethod.EditorInfo
 import android.webkit.ConsoleMessage
 import android.webkit.WebChromeClient
@@ -39,6 +41,10 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
     private lateinit var configManager: UniVoiceConfigManager
     private lateinit var pipelineManager: UniVoicePipelineManager
 
+    // フローティング字幕カード状態管理
+    private var isCardMinimized: Boolean = false
+    private var isDockedTop: Boolean = false
+
     // HTML5 全画面（最大化）再生管理
     private var customView: View? = null
     private var customViewCallback: WebChromeClient.CustomViewCallback? = null
@@ -71,6 +77,7 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
         pipelineManager = UniVoicePipelineManager(this, configManager)
 
         setupNavigationControls()
+        setupSubtitleOverlayInteractions()
         setupWebView()
         applyOrientationLayout(resources.configuration.orientation)
         observePipelineStates()
@@ -132,6 +139,11 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
 
         // トップバーからの直接字幕(CC)ON/OFFトグル
         binding.btnToggleCc.setOnClickListener {
+            // 字幕カードが閉じられていた場合は自動復帰
+            if (binding.cardSubtitleOverlay.visibility == View.GONE) {
+                binding.cardSubtitleOverlay.visibility = View.VISIBLE
+                binding.cardRestoreSubtitle.visibility = View.GONE
+            }
             binding.wvBrowser.evaluateJavascript("window.__univoice_toggle_cc && window.__univoice_toggle_cc();", null)
         }
 
@@ -148,26 +160,6 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
             startActivity(Intent(this, UniVoiceSettingsActivity::class.java))
         }
 
-        binding.btnDismissError.setOnClickListener {
-            pipelineManager.clearError()
-            pipelineManager.onCaptionStateChanged(true)
-            binding.layoutErrorOverlay.visibility = View.GONE
-        }
-
-        // 字幕オーバーレイのタップでコンパクト表示/詳細表示を切替可能に
-        binding.cardSubtitleOverlay.setOnClickListener {
-            val isOriginalVisible = binding.tvOriginalSubtitle.visibility == View.VISIBLE
-            if (isOriginalVisible) {
-                binding.tvOriginalSubtitle.visibility = View.GONE
-                binding.tvPrefetchCount.visibility = View.GONE
-            } else {
-                if (pipelineManager.currentCue.value != null) {
-                    binding.tvOriginalSubtitle.visibility = View.VISIBLE
-                }
-                binding.tvPrefetchCount.visibility = View.VISIBLE
-            }
-        }
-
         // URL入力ハンドリング
         binding.etUrl.setOnEditorActionListener { v, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_GO || actionId == EditorInfo.IME_ACTION_DONE) {
@@ -178,6 +170,140 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
                 false
             }
         }
+    }
+
+    /**
+     * フローティング字幕カードの操作（ドラッグ移動・最小化・上下ドック移動・閉じる・再表示）
+     */
+    @SuppressLint("ClickableViewAccessibility")
+    private fun setupSubtitleOverlayInteractions() {
+        // 1. エラー・ガイダンス通知の「閉じる」
+        binding.btnDismissError.setOnClickListener {
+            binding.layoutErrorOverlay.visibility = View.GONE
+            pipelineManager.dismissGuidance()
+        }
+
+        // 2. 字幕カードを閉じる（非表示化）
+        binding.btnCloseCard.setOnClickListener {
+            binding.cardSubtitleOverlay.visibility = View.GONE
+            binding.cardRestoreSubtitle.visibility = View.VISIBLE
+        }
+
+        // 3. 字幕カードの再表示
+        binding.cardRestoreSubtitle.setOnClickListener {
+            binding.cardSubtitleOverlay.visibility = View.VISIBLE
+            binding.cardRestoreSubtitle.visibility = View.GONE
+        }
+
+        // 4. 最小化 / 展開トグル
+        binding.btnMinimizeCard.setOnClickListener {
+            toggleCardMinimized()
+        }
+
+        // 最小化時にカードヘッダーをタップした場合も展開
+        binding.layoutCardHeader.setOnClickListener {
+            if (isCardMinimized) {
+                toggleCardMinimized()
+            }
+        }
+
+        // 5. 上下位置のトグル切り替え（YouTube動画プレイヤー直下 ↔ 画面下部）
+        binding.btnDockPosition.setOnClickListener {
+            toggleDockPosition()
+        }
+
+        // 6. 自由ドラッグ移動ハンドリング (ドラッグ領域でのみスワイプ移動)
+        setupDraggableSubtitleCard()
+    }
+
+    private fun toggleCardMinimized() {
+        isCardMinimized = !isCardMinimized
+        if (isCardMinimized) {
+            binding.layoutSubtitleContent.visibility = View.GONE
+            binding.btnMinimizeCard.setImageResource(R.drawable.ic_expand_less)
+            binding.btnMinimizeCard.contentDescription = "展開"
+        } else {
+            binding.layoutSubtitleContent.visibility = View.VISIBLE
+            binding.btnMinimizeCard.setImageResource(R.drawable.ic_expand_more)
+            binding.btnMinimizeCard.contentDescription = "最小化"
+        }
+    }
+
+    private fun toggleDockPosition() {
+        val parentView = binding.cardSubtitleOverlay.parent as? View ?: return
+        val density = resources.displayMetrics.density
+
+        isDockedTop = !isDockedTop
+        if (isDockedTop) {
+            val navBottom = binding.layoutNavBar.bottom.toFloat()
+            val approxVideoHeight = parentView.width.toFloat() * 9f / 16f
+            val targetY = navBottom + approxVideoHeight + (10 * density)
+            val targetTransY = targetY - binding.cardSubtitleOverlay.top.toFloat()
+
+            binding.cardSubtitleOverlay.animate()
+                .translationY(targetTransY)
+                .translationX(0f)
+                .setDuration(250)
+                .start()
+            binding.btnDockPosition.contentDescription = "下部に移動"
+        } else {
+            binding.cardSubtitleOverlay.animate()
+                .translationY(0f)
+                .translationX(0f)
+                .setDuration(250)
+                .start()
+            binding.btnDockPosition.contentDescription = "上部に移動"
+        }
+    }
+
+    @SuppressLint("ClickableViewAccessibility")
+    private fun setupDraggableSubtitleCard() {
+        var startRawX = 0f
+        var startRawY = 0f
+        var initialTranslationX = 0f
+        var initialTranslationY = 0f
+
+        val dragTouchListener = View.OnTouchListener { view, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    startRawX = event.rawX
+                    startRawY = event.rawY
+                    initialTranslationX = binding.cardSubtitleOverlay.translationX
+                    initialTranslationY = binding.cardSubtitleOverlay.translationY
+                    view.parent?.requestDisallowInterceptTouchEvent(true)
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val deltaX = event.rawX - startRawX
+                    val deltaY = event.rawY - startRawY
+
+                    val parentView = binding.cardSubtitleOverlay.parent as? View ?: return@OnTouchListener false
+                    val parentWidth = parentView.width.toFloat()
+                    val parentHeight = parentView.height.toFloat()
+
+                    val card = binding.cardSubtitleOverlay
+                    val minTransX = -card.left.toFloat()
+                    val maxTransX = parentWidth - card.right.toFloat()
+                    val topLimit = binding.layoutNavBar.bottom.toFloat()
+                    val minTransY = topLimit - card.top.toFloat()
+                    val maxTransY = parentHeight - card.bottom.toFloat()
+
+                    val targetX = (initialTranslationX + deltaX).coerceIn(minTransX, maxTransX)
+                    val targetY = (initialTranslationY + deltaY).coerceIn(minTransY, maxTransY)
+
+                    card.translationX = targetX
+                    card.translationY = targetY
+                    true
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    view.parent?.requestDisallowInterceptTouchEvent(false)
+                    true
+                }
+                else -> false
+            }
+        }
+
+        binding.layoutDragTouchArea.setOnTouchListener(dragTouchListener)
     }
 
     private fun loadInputUrl(input: String) {
@@ -473,6 +599,11 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
         cardLayoutParams.marginStart = if (isLandscape) (32 * density).toInt() else (16 * density).toInt()
         cardLayoutParams.marginEnd = if (isLandscape) (32 * density).toInt() else (16 * density).toInt()
         binding.cardSubtitleOverlay.layoutParams = cardLayoutParams
+
+        // 画面回転時はドラッグによるオフセットをリセット
+        binding.cardSubtitleOverlay.translationX = 0f
+        binding.cardSubtitleOverlay.translationY = 0f
+        isDockedTop = false
     }
 
     /**
@@ -504,6 +635,9 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
             visibility = View.VISIBLE
         }
 
+        binding.cardSubtitleOverlay.translationX = 0f
+        binding.cardSubtitleOverlay.translationY = 0f
+        isDockedTop = false
         binding.cardSubtitleOverlay.bringToFront()
         binding.btnFullscreen.setImageResource(R.drawable.ic_fullscreen_exit)
         setFullscreenImmersive(true)
@@ -522,6 +656,10 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
 
         binding.wvBrowser.visibility = View.VISIBLE
         binding.layoutNavBar.visibility = View.VISIBLE
+
+        binding.cardSubtitleOverlay.translationX = 0f
+        binding.cardSubtitleOverlay.translationY = 0f
+        isDockedTop = false
 
         setFullscreenImmersive(false)
         binding.btnFullscreen.setImageResource(R.drawable.ic_fullscreen)

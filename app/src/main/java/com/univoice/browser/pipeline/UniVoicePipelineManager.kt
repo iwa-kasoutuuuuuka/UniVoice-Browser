@@ -224,6 +224,14 @@ class UniVoicePipelineManager(
     }
 
     /**
+     * ガイダンス・エラー通知の手動消去（「閉じる」タップ時）
+     */
+    fun dismissGuidance() {
+        _captionGuidanceMessage.value = null
+        _errorMessage.value = null
+    }
+
+    /**
      * 単一字幕キューのパイプライン実行 (先読みキャッシュ確認 -> 翻訳 -> 音声合成再生)
      */
     private suspend fun processSubtitleCue(cue: UniVoiceSubtitleCue) {
@@ -355,10 +363,11 @@ class UniVoicePipelineManager(
     }
 
     /**
-     * エラーオーバーレイのクリア
+     * エラーおよびガイダンスオーバーレイのクリア
      */
     fun clearError() {
         _errorMessage.value = null
+        _captionGuidanceMessage.value = null
     }
 
     /**
