@@ -192,6 +192,11 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
             pipelineManager.dismissGuidance()
         }
 
+        // 字幕カード上の字幕(CC)ON/OFFトグル（全画面モード時にも即座に操作可能）
+        binding.btnCardToggleCc.setOnClickListener {
+            binding.wvBrowser.evaluateJavascript("window.__univoice_toggle_cc && window.__univoice_toggle_cc();", null)
+        }
+
         // 2. 字幕カードを閉じる（非表示化）
         binding.btnCloseCard.setOnClickListener {
             binding.cardSubtitleOverlay.visibility = View.GONE
@@ -403,6 +408,7 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
             onCaptionStateChangedCallback = { isEnabled ->
                 runOnUiThread {
                     binding.btnToggleCc.alpha = if (isEnabled) 1.0f else 0.5f
+                    binding.btnCardToggleCc.alpha = if (isEnabled) 1.0f else 0.5f
                 }
                 pipelineManager.onCaptionStateChanged(isEnabled)
             }
@@ -650,8 +656,11 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
 
         binding.cardSubtitleOverlay.translationX = 0f
         binding.cardSubtitleOverlay.translationY = 0f
+        binding.cardSubtitleOverlay.translationZ = 100f
+        binding.cardRestoreSubtitle.translationZ = 100f
         isDockedTop = false
         binding.cardSubtitleOverlay.bringToFront()
+        binding.cardRestoreSubtitle.bringToFront()
         binding.btnFullscreen.setImageResource(R.drawable.ic_fullscreen_exit)
         setFullscreenImmersive(true)
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
@@ -672,6 +681,8 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
 
         binding.cardSubtitleOverlay.translationX = 0f
         binding.cardSubtitleOverlay.translationY = 0f
+        binding.cardSubtitleOverlay.translationZ = 0f
+        binding.cardRestoreSubtitle.translationZ = 0f
         isDockedTop = false
 
         setFullscreenImmersive(false)

@@ -87,26 +87,39 @@ object YouTubeScriptInjector {
 
             function enterVideoFullscreen() {
                 if (isEnteringFullscreen) return true;
-                const video = document.querySelector('video');
-                if (!video) {
-                    log("動画要素が見つかりません");
+                // video単体ではなく、YouTubeプレイヤー全体（#movie_player）を最優先で全画面化
+                // これにより全画面時もYouTubeコントロールバー、CC字幕ボタン、字幕レンダラーが正常に保持される
+                const playerContainer = document.querySelector('#movie_player, .html5-video-player, ytm-mobile-player-component') || 
+                                        document.querySelector('.player-container') || 
+                                        document.querySelector('video');
+                if (!playerContainer) {
+                    log("全画面化対象のプレイヤー要素が見つかりません");
                     return false;
                 }
-                log("HTML5動画のネイティブ全画面表示（最大化）を実行します");
+                log("YouTubeプレイヤー全体の全画面表示（最大化）を実行します: " + playerContainer.tagName + "#" + playerContainer.id);
                 isEnteringFullscreen = true;
                 try {
                     if (nativeRequestFullscreen) {
                         try {
-                            const res = nativeRequestFullscreen.call(video);
+                            const res = nativeRequestFullscreen.call(playerContainer);
                             if (res && typeof res.then === 'function') {
                                 res.catch(function(e) {
                                     log("nativeRequestFullscreen rejected: " + e.message);
+                                    // フォールバック: playerContainerが拒否された場合はvideo単体で再試行
+                                    const video = document.querySelector('video');
+                                    if (video && video !== playerContainer) {
+                                        nativeRequestFullscreen.call(video);
+                                    }
                                 });
                             }
-                            log("nativeRequestFullscreen.call(video) 実行成功");
+                            log("nativeRequestFullscreen.call(playerContainer) 実行成功");
                             return true;
                         } catch(e) {
-                            log("nativeRequestFullscreen.call(video) 例外: " + e.message);
+                            log("nativeRequestFullscreen.call(playerContainer) 例外: " + e.message);
+                            const video = document.querySelector('video');
+                            if (video && video !== playerContainer) {
+                                nativeRequestFullscreen.call(video);
+                            }
                         }
                     }
                 } finally {
@@ -307,14 +320,46 @@ object YouTubeScriptInjector {
 
             window.__univoice_toggle_cc = function() {
                 try {
+                    log("window.__univoice_toggle_cc 呼び出し");
                     const player = document.querySelector('#movie_player, .html5-video-player');
                     if (player && typeof player.toggleSubtitles === 'function') {
                         player.toggleSubtitles();
+                        tryAutoTranslateToJapanese();
+                        return;
                     } else if (player && typeof player.toggleSubtitlesOn === 'function') {
-                        player.toggleSubtitlesOn();
+                        // オフ・オン状態をチェックして切り替え
+                        const activeSegments = document.querySelectorAll('.ytp-caption-segment, .caption-window, .player-caption-window');
+                        if (activeSegments && activeSegments.length > 0 && typeof player.toggleSubtitlesOff === 'function') {
+                            player.toggleSubtitlesOff();
+                        } else {
+                            player.toggleSubtitlesOn();
+                            tryAutoTranslateToJapanese();
+                        }
+                        return;
+                    }
+                    
+                    // DOMボタン検索（モバイル＆PC全セレクタ網羅）
+                    const ccBtn = document.querySelector(
+                        '.ytp-subtitles-button, button[aria-label*="字幕"], button[aria-label*="Captions"], button[aria-label*="Subtitles"], ytm-custom-control[aria-label*="字幕"], [aria-label*="cc" i]'
+                    );
+                    if (ccBtn && typeof ccBtn.click === 'function') {
+                        ccBtn.click();
+                        tryAutoTranslateToJapanese();
                     } else {
-                        const btn = document.querySelector('.ytp-subtitles-button, button[aria-label*="字幕"], button[aria-label*="Captions"], ytm-custom-control[aria-label*="字幕"]');
-                        if (btn) btn.click();
+                        // コントロールが非表示でボタンが見つからない場合、動画プレイヤーをタップしてコントロールを出現させる
+                        const videoOrPlayer = document.querySelector('video') || player;
+                        if (videoOrPlayer) {
+                            videoOrPlayer.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+                            setTimeout(function() {
+                                const retryBtn = document.querySelector(
+                                    '.ytp-subtitles-button, button[aria-label*="字幕"], button[aria-label*="Captions"], button[aria-label*="Subtitles"], ytm-custom-control[aria-label*="字幕"]'
+                                );
+                                if (retryBtn && typeof retryBtn.click === 'function') {
+                                    retryBtn.click();
+                                    tryAutoTranslateToJapanese();
+                                }
+                            }, 150);
+                        }
                     }
                 } catch(e) {
                     log("CC切替例外: " + e.message);

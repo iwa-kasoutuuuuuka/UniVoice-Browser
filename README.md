@@ -12,19 +12,19 @@
 [![UI Language](https://img.shields.io/badge/UI-Japanese%20Only%20%28100%25%29-red.svg)](#完全日本語ui設計)
 [![Build Status](https://img.shields.io/badge/Build-Passing-brightgreen.svg)]()
 [![Security](https://img.shields.io/badge/Security-Hardened-blue.svg)]()
-[![Release APK](https://img.shields.io/badge/APK_Download-v1.0.3_(51.8MB)-blueviolet.svg?logo=android)](release/UniVoiceBrowser-v1.0.3.apk)
+[![Release APK](https://img.shields.io/badge/APK_Download-v1.0.4_(51.8MB)-blueviolet.svg?logo=android)](release/UniVoiceBrowser-v1.0.4.apk)
 
 <p align="center">
-  <a href="https://github.com/iwa-kasoutuuuuuka/UniVoice-Browser/raw/main/release/UniVoiceBrowser-v1.0.3.apk">
-    <img src="https://img.shields.io/badge/📥_今すぐダウンロード-UniVoiceBrowser--v1.0.3.apk_(51.8MB)-2ea44f?style=for-the-badge&logo=android&logoColor=white" alt="APK直接ダウンロード" />
+  <a href="https://github.com/iwa-kasoutuuuuuka/UniVoice-Browser/raw/main/release/UniVoiceBrowser-v1.0.4.apk">
+    <img src="https://img.shields.io/badge/📥_今すぐダウンロード-UniVoiceBrowser--v1.0.4.apk_(51.8MB)-2ea44f?style=for-the-badge&logo=android&logoColor=white" alt="APK直接ダウンロード" />
   </a>
 </p>
 
 > [!TIP]
 > **ワンタップで今すぐインストール可能**: リリース版APK（署名済み）は上記バッジまたは以下のダイレクトリンクからダウンロードして、Android端末（Android 8.0以降 / Poco F6 Pro・Galaxy・Pixel・エミュレーター等）ですぐにご利用いただけます。
 > 
-> 🔗 **ダイレクトダウンロード**: [UniVoiceBrowser-v1.0.3.apk (約51.8MB)](https://github.com/iwa-kasoutuuuuuka/UniVoice-Browser/raw/main/release/UniVoiceBrowser-v1.0.3.apk)  
-> 🔗 **リポジトリ内ファイルパス**: [`release/UniVoiceBrowser-v1.0.3.apk`](release/UniVoiceBrowser-v1.0.3.apk)
+> 🔗 **ダイレクトダウンロード**: [UniVoiceBrowser-v1.0.4.apk (約51.8MB)](https://github.com/iwa-kasoutuuuuuka/UniVoice-Browser/raw/main/release/UniVoiceBrowser-v1.0.4.apk)  
+> 🔗 **リポジトリ内ファイルパス**: [`release/UniVoiceBrowser-v1.0.4.apk`](release/UniVoiceBrowser-v1.0.4.apk)
 
 **UniVoice Browser** は、YouTubeなどの動画視聴時に元の外国語（英語等）音声をHTML5レベルで完全抑制（ミュート）し、リアルタイムに字幕をキャプチャ・翻訳して、流暢な日本語音声（Text-to-Speech）をオーバーレイ再生するAndroid専用の次世代AIブラウザです。
 
@@ -105,7 +105,13 @@
 
 ## 🔄 最近のアップデート・更新履歴 (Changelog)
 
-### 【最新版】v1.0.3 メジャーアップデート内容 (versionCode: 4)
+### 【最新版】v1.0.4 メジャーアップデート内容 (versionCode: 5)
+
+| 項目 | 改善・修正の詳細内容 |
+| :--- | :--- |
+| **🖥️ 全画面（フルスクリーン）時の字幕表示・操作性完全修復** | YouTubeを全画面表示にした際に字幕が表示されなくなる問題、および画面タップ時に字幕ボタンが表示されない問題を根本解決。<br>・**プレイヤー親要素（`#movie_player`）全画面化**: `<video>` 単体ではなくYouTubeプレイヤーコンテナ全体を全画面化対象に指定。全画面時もYouTubeネイティブの再生バー、字幕(CC)ボタン、設定メニュー、DOM字幕レイヤーがそのまま維持され、画面タップでコントロールが正常に出現。<br>・**ネイティブ字幕オーバーレイの前面配置保証**: 全画面動画サーフェスによって字幕カードが背面に潜り込まないよう、`translationZ = 100dp` および `bringToFront()` を適用。全画面時も翻訳字幕が最前面に美しく重畳。<br>・**字幕カード上に「字幕(CC)切替ボタン」を常設**: トップバーが隠れる全画面モード中も、字幕カード右上の `[CC]` アイコンからワンタップで即座に字幕のON/OFFが可能に。コントロール非表示時でも動画タップイベントを自動送出して確実に字幕をトグル。 |
+
+### v1.0.3 アップデート内容 (versionCode: 4)
 
 | 項目 | 改善・修正の詳細内容 |
 | :--- | :--- |

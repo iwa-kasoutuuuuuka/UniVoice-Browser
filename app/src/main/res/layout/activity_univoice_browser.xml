@@ -272,11 +272,23 @@
                     android:textColor="@color/primary"
                     android:textSize="10sp" />
 
+                <!-- 字幕 (CC) 切替ボタン（全画面時にも直接操作可能） -->
+                <ImageButton
+                    android:id="@+id/btnCardToggleCc"
+                    android:layout_width="32dp"
+                    android:layout_height="32dp"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="字幕(CC)切替"
+                    android:padding="5dp"
+                    android:src="@drawable/ic_subtitles"
+                    app:tint="@color/on_surface_variant" />
+
                 <!-- 上下位置切り替えボタン -->
                 <ImageButton
                     android:id="@+id/btnDockPosition"
                     android:layout_width="32dp"
                     android:layout_height="32dp"
+                    android:layout_marginStart="2dp"
                     android:background="?attr/selectableItemBackgroundBorderless"
                     android:contentDescription="上/下に移動"
                     android:padding="5dp"
