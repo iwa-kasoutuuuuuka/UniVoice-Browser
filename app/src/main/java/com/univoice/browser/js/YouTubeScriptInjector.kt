@@ -197,6 +197,65 @@ object YouTubeScriptInjector {
                 } catch(_e) {}
             }
 
+            // キャプショントラックの先行取得（一時停止中・再生中の長大先読み用）
+            let lastFetchedTrackBaseUrl = "";
+            let prefetchRunning = false;
+            function prefetchCaptionTrack() {
+                if (prefetchRunning) return;
+                try {
+                    const player = document.querySelector('#movie_player, .html5-video-player');
+                    if (!player || typeof player.getPlayerResponse !== 'function') return;
+                    const pr = player.getPlayerResponse();
+                    const tracks = pr && pr.captions && pr.captions.playerCaptionsTracklistRenderer && pr.captions.playerCaptionsTracklistRenderer.captionTracks;
+                    if (!tracks || tracks.length === 0) return;
+
+                    // 英語または最初のキャプショントラックを選択
+                    let targetTrack = tracks.find(function(t) { return t.languageCode === 'en' || (t.vssId && t.vssId.indexOf('.en') !== -1); }) || tracks[0];
+                    if (!targetTrack || !targetTrack.baseUrl) return;
+                    if (targetTrack.baseUrl === lastFetchedTrackBaseUrl) return;
+
+                    lastFetchedTrackBaseUrl = targetTrack.baseUrl;
+                    prefetchRunning = true;
+                    log("YouTube 字幕トラック (timedtext) 先読みフェッチを開始: " + targetTrack.name?.simpleText || targetTrack.languageCode);
+
+                    fetch(targetTrack.baseUrl + '&fmt=json3')
+                        .then(function(res) { return res.json(); })
+                        .then(function(data) {
+                            prefetchRunning = false;
+                            if (!data || !data.events) return;
+                            const video = document.querySelector('video');
+                            const currentMs = video ? Math.floor(video.currentTime * 1000) : 0;
+
+                            let queuedCount = 0;
+                            data.events.forEach(function(ev) {
+                                if (!ev.segs || !ev.tStartMs) return;
+                                const start = ev.tStartMs;
+                                const dur = ev.dDurationMs || 3000;
+                                const end = start + dur;
+
+                                // 現在再生位置から先、または直前直後のみを先読み対象（最大30件）
+                                if (end >= currentMs - 2000 && queuedCount < 30) {
+                                    const text = ev.segs.map(function(s) { return s.utf8 || ''; }).join('').trim();
+                                    const sanitized = sanitizeCaption(text);
+                                    if (sanitized && sanitized.length >= 2) {
+                                        queuedCount++;
+                                        if (bridge && bridge.onSubtitleReceived) {
+                                            bridge.onSubtitleReceived(start, end, sanitized);
+                                        }
+                                    }
+                                }
+                            });
+                            log("字幕トラックから " + queuedCount + " 件の字幕を事前バッファリングしました");
+                        })
+                        .catch(function(err) {
+                            prefetchRunning = false;
+                            log("字幕トラック先行取得警告: " + err.message);
+                        });
+                } catch(e) {
+                    prefetchRunning = false;
+                }
+            }
+
             // 外部（ネイティブトップバー等）から呼び出し可能な操作ヘルパー
             window.__univoice_toggle_play_pause = function() {
                 try {
@@ -251,6 +310,18 @@ object YouTubeScriptInjector {
                 video.addEventListener('play', function() {
                     enforceMute(video);
                     tryAutoTranslateToJapanese();
+                    if (bridge && bridge.onVideoStateChanged) {
+                        const currentMs = Math.floor(video.currentTime * 1000);
+                        bridge.onVideoStateChanged(true, currentMs);
+                    }
+                }, false);
+
+                video.addEventListener('pause', function() {
+                    prefetchCaptionTrack();
+                    if (bridge && bridge.onVideoStateChanged) {
+                        const currentMs = Math.floor(video.currentTime * 1000);
+                        bridge.onVideoStateChanged(false, currentMs);
+                    }
                 }, false);
 
                 video.addEventListener('volumechange', function() {
@@ -565,11 +636,13 @@ object YouTubeScriptInjector {
                 log("YouTube ページ遷移を検知: " + window.location.href);
                 autoCcAttemptedForVideo = false;
                 previewMuteDismissed = false;
+                lastFetchedTrackBaseUrl = "";
                 lastReportedCaptionState = null;
                 pendingCaptionText = "";
                 lastEmittedSentence = "";
                 tryAutoTranslateToJapanese();
                 autoDismissPreviewMute();
+                prefetchCaptionTrack();
                 const videos = document.querySelectorAll('video');
                 videos.forEach(function(v) {
                     attachVideoListeners(v);
@@ -589,7 +662,8 @@ object YouTubeScriptInjector {
                 autoDismissPreviewMute();
                 handleVideoAds();
                 checkCaptionState();
-            }, 1000);
+                prefetchCaptionTrack();
+            }, 1500);
 
             observeCaptions();
             log("UniVoice JavaScript 初期化完了");

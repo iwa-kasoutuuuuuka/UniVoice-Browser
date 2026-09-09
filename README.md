@@ -12,19 +12,19 @@
 [![UI Language](https://img.shields.io/badge/UI-Japanese%20Only%20%28100%25%29-red.svg)](#完全日本語ui設計)
 [![Build Status](https://img.shields.io/badge/Build-Passing-brightgreen.svg)]()
 [![Security](https://img.shields.io/badge/Security-Hardened-blue.svg)]()
-[![Release APK](https://img.shields.io/badge/APK_Download-v1.0.1_(51.8MB)-blueviolet.svg?logo=android)](release/UniVoiceBrowser-v1.0.1.apk)
+[![Release APK](https://img.shields.io/badge/APK_Download-v1.0.2_(51.8MB)-blueviolet.svg?logo=android)](release/UniVoiceBrowser-v1.0.2.apk)
 
 <p align="center">
-  <a href="https://github.com/iwa-kasoutuuuuuka/UniVoice-Browser/raw/main/release/UniVoiceBrowser-v1.0.1.apk">
-    <img src="https://img.shields.io/badge/📥_今すぐダウンロード-UniVoiceBrowser--v1.0.1.apk_(51.8MB)-2ea44f?style=for-the-badge&logo=android&logoColor=white" alt="APK直接ダウンロード" />
+  <a href="https://github.com/iwa-kasoutuuuuuka/UniVoice-Browser/raw/main/release/UniVoiceBrowser-v1.0.2.apk">
+    <img src="https://img.shields.io/badge/📥_今すぐダウンロード-UniVoiceBrowser--v1.0.2.apk_(51.8MB)-2ea44f?style=for-the-badge&logo=android&logoColor=white" alt="APK直接ダウンロード" />
   </a>
 </p>
 
 > [!TIP]
 > **ワンタップで今すぐインストール可能**: リリース版APK（署名済み）は上記バッジまたは以下のダイレクトリンクからダウンロードして、Android端末（Android 8.0以降 / Poco F6 Pro・Galaxy・Pixel・エミュレーター等）ですぐにご利用いただけます。
 > 
-> 🔗 **ダイレクトダウンロード**: [UniVoiceBrowser-v1.0.1.apk (約51.8MB)](https://github.com/iwa-kasoutuuuuuka/UniVoice-Browser/raw/main/release/UniVoiceBrowser-v1.0.1.apk)  
-> 🔗 **リポジトリ内ファイルパス**: [`release/UniVoiceBrowser-v1.0.1.apk`](release/UniVoiceBrowser-v1.0.1.apk)
+> 🔗 **ダイレクトダウンロード**: [UniVoiceBrowser-v1.0.2.apk (約51.8MB)](https://github.com/iwa-kasoutuuuuuka/UniVoice-Browser/raw/main/release/UniVoiceBrowser-v1.0.2.apk)  
+> 🔗 **リポジトリ内ファイルパス**: [`release/UniVoiceBrowser-v1.0.2.apk`](release/UniVoiceBrowser-v1.0.2.apk)
 
 **UniVoice Browser** は、YouTubeなどの動画視聴時に元の外国語（英語等）音声をHTML5レベルで完全抑制（ミュート）し、リアルタイムに字幕をキャプチャ・翻訳して、流暢な日本語音声（Text-to-Speech）をオーバーレイ再生するAndroid専用の次世代AIブラウザです。
 
@@ -226,6 +226,18 @@ YouTubeで再生速度の変更（0.75倍、1.25倍等）や画質調整、チ�
   - ヘッダー内のボタン（`[⇅]`, `[▼]`, `[✕]`）や警告バナーのクリック操作とドラッグ判定が一切干渉せず、100%確実なタップ＆ドラッグ操作を実現。
   - 画面外にカードが見失われないよう、画面端（上下左右）への安全な境界制限（クランプ）処理を内蔵。
   - 端末の画面回転（縦画面 ↔ 横画面）や全画面シアターモード移行時にも、カードの表示座標を自動で適切にリセット・補正します。
+
+### 7. 長大ウィンドウ先読み＆一時停止中バックグラウンド事前バッファリング (v1.0.2 新機能)
+日本語音声の途切れや発話の遅延を根本から撲滅するため、業界最高水準の長大先読み・キャプショントラック先行取得パイプラインを搭載しました：
+
+- **最大20〜30件の長大ウィンドウ先読み**:
+  - 従来（3件）から大幅に拡張し、最大 **20〜30件** 先の字幕まで一気に並行バックグラウンド翻訳を実施。
+  - YouTube動画の `timedtext` キャプショントラックをバックグラウンドで事前取得し、動画の再生位置に先回りして翻訳結果をローカルキャッシュ（`translationCache`）に蓄積します。
+- **一時停止中の先読み＆翻訳バッファ維持**:
+  - 動画を一時停止（ポーズ）した際にも、翻訳キューや先読みバッファは破棄されず、バックグラウンドで先読み翻訳を休まず継続。
+  - 動画を数秒〜数分一時停止しておくだけで、再開後の数十秒〜数分分の日本語音声テキストが **「待機時間0ms」** の状態で準備完了となります。
+- **一時停止復帰時の音声脱落防止**:
+  - 一時停止中に字幕の経過時間が超過して音声再生がスキップされてしまう問題を解消。一時停止中であることを検知し、再生再開とともに即座に途切れることなく滑らかな日本語吹き替えを再開します。
 
 ---
 

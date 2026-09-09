@@ -40,7 +40,7 @@ class UniVoicePipelineManager(
 
     companion object {
         private const val TAG = "UniVoicePipelineMgr"
-        private const val SLIDING_WINDOW_SIZE = 6 // 過去と未来のコンテキスト保持サイズ
+        private const val SLIDING_WINDOW_SIZE = 50 // 過去と未来のコンテキスト保持サイズ (12GB+ RAM向けに長大化)
     }
 
     private val exceptionHandler = CoroutineExceptionHandler { _, throwable ->
@@ -53,6 +53,10 @@ class UniVoicePipelineManager(
     // エンジンインスタンス
     private var translationEngine: TranslationEngine? = null
     private var ttsEngine: TtsEngine? = null
+
+    // 動画再生中フラグ
+    @Volatile
+    var isVideoPlaying: Boolean = true
 
     // 状態管理 Flow
     private val _currentStatus = MutableStateFlow(PipelineStatus.IDLE)
@@ -210,6 +214,9 @@ class UniVoicePipelineManager(
 
         // チャンネルへ投入
         cueChannel.trySend(cue)
+
+        // 後続の未翻訳字幕を直ちにバックグラウンド先読み開始
+        prefetchUpcomingCues()
     }
 
     /**
@@ -283,9 +290,10 @@ class UniVoicePipelineManager(
         // 日英対訳スクリプト履歴へ自動記録 (語学学習用)
         transcriptRepo.addCue(cue)
 
-        // 経過時間が長すぎる場合（再生待機中に動画が大幅に進んだ場合）、音声再生はスキップしてリアルタイム動画に追従
+        // 経過時間が長すぎる場合（リアルタイム動画再生中に大きく遅延した場合のみスキップ）
+        // 一時停止中の場合は動画停止中なのでスキップ判定を行わない
         val cueAgeMs = System.currentTimeMillis() - cue.createdAt
-        if (cueAgeMs > 9000L) {
+        if (isVideoPlaying && cueAgeMs > 15000L) {
             Log.d(TAG, "[UniVoiceBrowser] 時間経過したキューのため音声合成をスキップ (${cueAgeMs}ms経過): $cleanText")
             _currentStatus.value = PipelineStatus.IDLE
             return
@@ -299,6 +307,14 @@ class UniVoicePipelineManager(
                 _errorMessage.value = "⚠️ 音声が消音(音量0)です。端末の音量ボタンで上げてください"
             }
         } catch (_: Exception) {}
+
+        // 動画が一時停止中の場合は音声発話を待機（翻訳キャッシュのみ完了させておく）
+        if (!isVideoPlaying) {
+            Log.d(TAG, "[UniVoiceBrowser] 動画一時停止中のため発話は待機し、翻訳キャッシュのみ完了: $cleanText -> $translated")
+            prefetchUpcomingCues()
+            _currentStatus.value = PipelineStatus.IDLE
+            return
+        }
 
         // 2. 音声合成および再生 (動的リップシンク・タイムストレッチ適用)
         _currentStatus.value = PipelineStatus.SYNTHESIZING
@@ -334,28 +350,37 @@ class UniVoicePipelineManager(
             }
         }
 
-        // 3. 次の字幕の先読み (Prefetch 3 cues ahead)
+        // 3. 次の字幕の長大先読み (Prefetch up to 20 cues ahead)
         prefetchUpcomingCues()
 
         _currentStatus.value = PipelineStatus.IDLE
     }
 
     /**
-     * 未翻訳の先読み候補を非同期に事前翻訳
+     * 未翻訳の先読み候補を非同期に事前翻訳（最大20件まで先読み実行）
      */
-    private fun prefetchUpcomingCues() {
+    fun prefetchUpcomingCues() {
         val pendingList = slidingWindowQueue.filter { it.translatedText == null && !translationCache.containsKey(it.cleanText) }
         if (pendingList.isEmpty()) return
 
         pipelineScope.launch(Dispatchers.IO) {
-            for (pending in pendingList.take(3)) {
+            for (pending in pendingList.take(20)) {
                 val clean = pending.cleanText
                 if (clean.isNotBlank() && !translationCache.containsKey(clean)) {
+                    val isJp = clean.any { it.code in 0x3040..0x30FF || it.code in 0x4E00..0x9FFF }
+                    if (isJp) {
+                        translationCache[clean] = clean
+                        pending.translatedText = clean
+                        _prefetchedCountFlow.value = translationCache.size
+                        continue
+                    }
                     val history = slidingWindowQueue.map { it.cleanText }
                     val trans = (translationEngine ?: freeWebTranslation).translate(clean, history).getOrNull()
-                    if (trans != null) {
+                    if (!trans.isNullOrBlank()) {
                         translationCache[clean] = trans
+                        pending.translatedText = trans
                         _prefetchedCountFlow.value = translationCache.size
+                        Log.d(TAG, "[UniVoiceBrowser] 先読みバッファ完了 (${translationCache.size}件保持): [$clean] -> [$trans]")
                     }
                 }
             }
@@ -371,9 +396,34 @@ class UniVoicePipelineManager(
     }
 
     /**
-     * 再生停止
+     * 一時停止時の音声出力のみ停止（先読みキューや翻訳キャッシュは完全に維持）
+     */
+    fun pauseAudioOutputOnly() {
+        isVideoPlaying = false
+        if (ttsEngine !== fallbackSystemTts && ttsEngine !== cloudEdgeTts) {
+            ttsEngine?.stop()
+        }
+        cloudEdgeTts.stop()
+        fallbackSystemTts.stop()
+        if (_currentStatus.value == PipelineStatus.PLAYING || _currentStatus.value == PipelineStatus.SYNTHESIZING) {
+            _currentStatus.value = PipelineStatus.IDLE
+        }
+        // 一時停止中にも先読み翻訳を積極的にトリガー
+        prefetchUpcomingCues()
+    }
+
+    /**
+     * 再生再開時の通知
+     */
+    fun resumeAudioOutput() {
+        isVideoPlaying = true
+    }
+
+    /**
+     * 再生停止（完全停止）
      */
     fun stopAudio() {
+        isVideoPlaying = false
         while (cueChannel.tryReceive().isSuccess) {}
         if (ttsEngine !== fallbackSystemTts && ttsEngine !== cloudEdgeTts) {
             ttsEngine?.stop()

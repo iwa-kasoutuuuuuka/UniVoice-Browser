@@ -382,7 +382,10 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
                     )
                 }
                 if (!isPlaying) {
-                    pipelineManager.stopAudio()
+                    // 動画停止時は音声再生中TTSのみ停止（キューや翻訳事前バッファは破棄せず維持し、一時停止中の先読みを継続）
+                    pipelineManager.pauseAudioOutputOnly()
+                } else {
+                    pipelineManager.resumeAudioOutput()
                 }
             },
             onAudioSuppressedCallback = { isSuppressed ->
