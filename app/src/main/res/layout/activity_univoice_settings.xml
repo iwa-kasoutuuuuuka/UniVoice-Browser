@@ -441,6 +441,31 @@
                         android:layout_marginBottom="16dp"
                         android:background="@color/divider_color" />
 
+                    <!-- 画面消灯・バックグラウンド再生スイッチ -->
+                    <com.google.android.material.switchmaterial.SwitchMaterial
+                        android:id="@+id/switchBackgroundPlayback"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:checked="true"
+                        android:text="@string/label_background_playback"
+                        android:textColor="@color/on_surface"
+                        android:textSize="14sp"
+                        app:useMaterialThemeColors="true" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginBottom="16dp"
+                        android:text="@string/desc_background_playback"
+                        android:textColor="@color/on_surface_variant"
+                        android:textSize="12sp" />
+
+                    <View
+                        android:layout_width="match_parent"
+                        android:layout_height="1dp"
+                        android:layout_marginBottom="16dp"
+                        android:background="@color/divider_color" />
+
                     <!-- 広告ブロックスイッチ -->
                     <com.google.android.material.switchmaterial.SwitchMaterial
                         android:id="@+id/switchAdBlock"

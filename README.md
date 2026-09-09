@@ -12,19 +12,19 @@
 [![UI Language](https://img.shields.io/badge/UI-Japanese%20Only%20%28100%25%29-red.svg)](#完全日本語ui設計)
 [![Build Status](https://img.shields.io/badge/Build-Passing-brightgreen.svg)]()
 [![Security](https://img.shields.io/badge/Security-Hardened-blue.svg)]()
-[![Release APK](https://img.shields.io/badge/APK_Download-v1.0.2_(51.8MB)-blueviolet.svg?logo=android)](release/UniVoiceBrowser-v1.0.2.apk)
+[![Release APK](https://img.shields.io/badge/APK_Download-v1.0.3_(51.8MB)-blueviolet.svg?logo=android)](release/UniVoiceBrowser-v1.0.3.apk)
 
 <p align="center">
-  <a href="https://github.com/iwa-kasoutuuuuuka/UniVoice-Browser/raw/main/release/UniVoiceBrowser-v1.0.2.apk">
-    <img src="https://img.shields.io/badge/📥_今すぐダウンロード-UniVoiceBrowser--v1.0.2.apk_(51.8MB)-2ea44f?style=for-the-badge&logo=android&logoColor=white" alt="APK直接ダウンロード" />
+  <a href="https://github.com/iwa-kasoutuuuuuka/UniVoice-Browser/raw/main/release/UniVoiceBrowser-v1.0.3.apk">
+    <img src="https://img.shields.io/badge/📥_今すぐダウンロード-UniVoiceBrowser--v1.0.3.apk_(51.8MB)-2ea44f?style=for-the-badge&logo=android&logoColor=white" alt="APK直接ダウンロード" />
   </a>
 </p>
 
 > [!TIP]
 > **ワンタップで今すぐインストール可能**: リリース版APK（署名済み）は上記バッジまたは以下のダイレクトリンクからダウンロードして、Android端末（Android 8.0以降 / Poco F6 Pro・Galaxy・Pixel・エミュレーター等）ですぐにご利用いただけます。
 > 
-> 🔗 **ダイレクトダウンロード**: [UniVoiceBrowser-v1.0.2.apk (約51.8MB)](https://github.com/iwa-kasoutuuuuuka/UniVoice-Browser/raw/main/release/UniVoiceBrowser-v1.0.2.apk)  
-> 🔗 **リポジトリ内ファイルパス**: [`release/UniVoiceBrowser-v1.0.2.apk`](release/UniVoiceBrowser-v1.0.2.apk)
+> 🔗 **ダイレクトダウンロード**: [UniVoiceBrowser-v1.0.3.apk (約51.8MB)](https://github.com/iwa-kasoutuuuuuka/UniVoice-Browser/raw/main/release/UniVoiceBrowser-v1.0.3.apk)  
+> 🔗 **リポジトリ内ファイルパス**: [`release/UniVoiceBrowser-v1.0.3.apk`](release/UniVoiceBrowser-v1.0.3.apk)
 
 **UniVoice Browser** は、YouTubeなどの動画視聴時に元の外国語（英語等）音声をHTML5レベルで完全抑制（ミュート）し、リアルタイムに字幕をキャプチャ・翻訳して、流暢な日本語音声（Text-to-Speech）をオーバーレイ再生するAndroid専用の次世代AIブラウザです。
 
@@ -238,6 +238,19 @@ YouTubeで再生速度の変更（0.75倍、1.25倍等）や画質調整、チ�
   - 動画を数秒〜数分一時停止しておくだけで、再開後の数十秒〜数分分の日本語音声テキストが **「待機時間0ms」** の状態で準備完了となります。
 - **一時停止復帰時の音声脱落防止**:
   - 一時停止中に字幕の経過時間が超過して音声再生がスキップされてしまう問題を解消。一時停止中であることを検知し、再生再開とともに即座に途切れることなく滑らかな日本語吹き替えを再開します。
+
+### 8. 画面消灯・完全バックグラウンド再生 (v1.0.3 新機能)
+スマホの画面をスリープ・消灯させた状態や、別アプリへ切り替えた状態でも、途切れることなくYouTubeの日本語吹き替え音声をラジオ感覚で聴き続けることができます：
+
+- **Page Visibility API 偽装保護**:
+  - ブラウザの画面が消えたり裏に回ったりした際、YouTubeが発火する `visibilitychange` や `document.hidden` 判定をインターセプト。YouTubeプレーヤーに「動画が常に最前面で視聴されている」と認識させ、強制自動一時停止を完全に回避します。
+- **Android フォアグラウンドメディアサービス (`UniVoicePlaybackService.kt`)**:
+  - Android標準のメディアフォアグラウンドサービスを起動し、OSの省電力キラーによるアプリ強制終了をブロック。
+  - ロック画面や通知シェードに「UniVoice ブラウザ: YouTube日本語音声をバックグラウンド再生中」のステータスを表示。
+- **Partial WakeLock 画面消灯保護**:
+  - 画面消灯後もCPUコアを稼働させ、リアルタイム字幕インターセプト、翻訳API通信、および音声合成エンジンのPCM出力を途絶えさせません。
+- **ワンタップ切替＆設定連携**:
+  - トップ操作バーの **音符ボタン（`🎵`）** または設定画面の **「画面消灯・バックグラウンド再生」** スイッチから、いつでもワンタップで有効/無効を切り替え可能です。
 
 ---
 

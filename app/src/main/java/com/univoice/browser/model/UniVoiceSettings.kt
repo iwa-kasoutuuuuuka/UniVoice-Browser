@@ -15,7 +15,8 @@ data class UniVoiceSettings(
     val speechSpeed: Float = 1.0f,
     val speechPitch: Float = 1.0f,
     val prefetchCount: Int = 3,
-    val adBlockEnabled: Boolean = true
+    val adBlockEnabled: Boolean = true,
+    val backgroundPlaybackEnabled: Boolean = true
 ) {
     /**
      * 現在の動作モードに応じた実効翻訳エンジンを取得

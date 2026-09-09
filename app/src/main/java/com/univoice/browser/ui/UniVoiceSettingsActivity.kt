@@ -233,6 +233,7 @@ class UniVoiceSettingsActivity : AppCompatActivity() {
         // ハードウェア・動作制御
         binding.switchHardwareAccel.isChecked = settings.hardwareAcceleration
         binding.switchAudioSuppression.isChecked = settings.audioSuppressionEnabled
+        binding.switchBackgroundPlayback.isChecked = settings.backgroundPlaybackEnabled
         binding.switchAdBlock.isChecked = settings.adBlockEnabled
         binding.sliderTtsSpeed.value = settings.speechSpeed.coerceIn(0.5f, 2.5f)
         binding.tvTtsSpeedLabel.text = getString(R.string.label_tts_speed, settings.speechSpeed)
@@ -261,6 +262,7 @@ class UniVoiceSettingsActivity : AppCompatActivity() {
         val apiKey = binding.etGeminiApiKey.text?.toString()?.trim() ?: ""
         val hwAccel = binding.switchHardwareAccel.isChecked
         val audioSuppression = binding.switchAudioSuppression.isChecked
+        val backgroundPlayback = binding.switchBackgroundPlayback.isChecked
         val adBlock = binding.switchAdBlock.isChecked
         val speed = binding.sliderTtsSpeed.value
 
@@ -271,6 +273,7 @@ class UniVoiceSettingsActivity : AppCompatActivity() {
             geminiApiKey = apiKey,
             hardwareAcceleration = hwAccel,
             audioSuppressionEnabled = audioSuppression,
+            backgroundPlaybackEnabled = backgroundPlayback,
             adBlockEnabled = adBlock,
             speechSpeed = speed
         )

@@ -138,6 +138,39 @@ object YouTubeScriptInjector {
                 log("全画面APIフック例外: " + e.message);
             }
 
+            // ==========================================
+            // 0.1 バックグラウンド再生保護 (Page Visibility API 偽装)
+            // 画面消灯やバックグラウンド時でも YouTube の自動ポーズを防ぐ
+            // ==========================================
+            try {
+                Object.defineProperty(document, 'hidden', {
+                    get: function() { return false; },
+                    configurable: true
+                });
+                Object.defineProperty(document, 'visibilityState', {
+                    get: function() { return 'visible'; },
+                    configurable: true
+                });
+                Object.defineProperty(document, 'webkitHidden', {
+                    get: function() { return false; },
+                    configurable: true
+                });
+                Object.defineProperty(document, 'webkitVisibilityState', {
+                    get: function() { return 'visible'; },
+                    configurable: true
+                });
+                // visibilitychange イベントの発火をインターセプトして動画停止を防止
+                window.addEventListener('visibilitychange', function(e) {
+                    e.stopImmediatePropagation();
+                }, true);
+                document.addEventListener('visibilitychange', function(e) {
+                    e.stopImmediatePropagation();
+                }, true);
+                log("バックグラウンド再生保護（Page Visibility API 偽装）を適用しました");
+            } catch(e) {
+                log("Visibility APIフック例外: " + e.message);
+            }
+
             // YouTube DOM上の全画面ボタンのタップを確実に捕捉するキャプチャフェーズ・イベントリスナー
             function handleFullscreenInteraction(e) {
                 const target = e.target;

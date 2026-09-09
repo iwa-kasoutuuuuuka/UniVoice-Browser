@@ -139,6 +139,15 @@
                 android:contentDescription="小窓再生 (PiP)"
                 android:src="@drawable/ic_pip" />
 
+            <!-- 画面消灯・バックグラウンド再生切替ボタン -->
+            <ImageButton
+                android:id="@+id/btnBackgroundAudio"
+                android:layout_width="38dp"
+                android:layout_height="38dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="画面消灯・バックグラウンド再生切替"
+                android:src="@drawable/ic_music_note" />
+
             <!-- 全画面 / 最大化ボタン -->
             <ImageButton
                 android:id="@+id/btnFullscreen"

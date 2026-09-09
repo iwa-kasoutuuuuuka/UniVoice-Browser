@@ -132,6 +132,15 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
             enterPipMode()
         }
 
+        binding.btnBackgroundAudio.setOnClickListener {
+            val current = configManager.currentSettings.backgroundPlaybackEnabled
+            val newState = !current
+            configManager.setBackgroundPlaybackEnabled(newState)
+            updateBackgroundAudioButton(newState)
+            val msg = if (newState) "画面消灯・バックグラウンド再生を有効にしました" else "バックグラウンド再生を無効にしました"
+            android.widget.Toast.makeText(this, msg, android.widget.Toast.LENGTH_SHORT).show()
+        }
+
         // トップバーからの直接再生/一時停止コントロール
         binding.btnPlayPause.setOnClickListener {
             binding.wvBrowser.evaluateJavascript("window.__univoice_toggle_play_pause && window.__univoice_toggle_play_pause();", null)
@@ -515,10 +524,11 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
      * パイプライン状態と字幕のUI監視 (StateFlow)
      */
     private fun observePipelineStates() {
-        // 動作モードバッジの更新
+        // 動作モードバッジおよびバックグラウンド再生ボタンの更新
         lifecycleScope.launch {
             configManager.settingsFlow.collectLatest { settings ->
                 binding.tvModeBadge.text = settings.currentMode.titleJapanese
+                updateBackgroundAudioButton(settings.backgroundPlaybackEnabled)
                 // 音声抑制設定が変わった場合、最新設定でスクリプト再適用
                 checkAndInjectYouTubeScripts(binding.wvBrowser.url)
             }
@@ -713,15 +723,33 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
         }
     }
 
+    private fun updateBackgroundAudioButton(enabled: Boolean) {
+        runOnUiThread {
+            binding.btnBackgroundAudio.alpha = if (enabled) 1.0f else 0.45f
+        }
+    }
+
     override fun onPause() {
         super.onPause()
-        binding.wvBrowser.onPause()
-        pipelineManager.stopAudio()
+        val isBackgroundEnabled = configManager.currentSettings.backgroundPlaybackEnabled
+        val isYouTube = YouTubeScriptInjector.isYouTubeUrl(binding.wvBrowser.url)
+
+        if (isBackgroundEnabled && isYouTube) {
+            Log.i(TAG, "[UniVoiceBrowser] バックグラウンド再生が有効なため、WebViewと音声パイプラインを停止させず維持します")
+            com.univoice.browser.service.UniVoicePlaybackService.start(this)
+            // WebViewを停止(onPause)させずにバックグラウンドでのJS・タイマー・字幕処理を継続させる
+        } else {
+            binding.wvBrowser.onPause()
+            pipelineManager.stopAudio()
+            com.univoice.browser.service.UniVoicePlaybackService.stop(this)
+        }
     }
 
     override fun onResume() {
         super.onResume()
         binding.wvBrowser.onResume()
+        // フォアグラウンド復帰時はサービス停止
+        com.univoice.browser.service.UniVoicePlaybackService.stop(this)
     }
 
     /**
@@ -767,6 +795,7 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
     override fun onDestroy() {
         hideCustomView()
         super.onDestroy()
+        com.univoice.browser.service.UniVoicePlaybackService.stop(this)
         pipelineManager.release()
         binding.wvBrowser.destroy()
     }

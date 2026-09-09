@@ -50,6 +50,9 @@
     <string name="label_audio_suppression">動画の元音声を完全ミュート</string>
     <string name="desc_audio_suppression">英語等の元音声をHTML5レベルで強制ミュートし、日本語翻訳音声のみをクリアに再生します</string>
 
+    <string name="label_background_playback">画面消灯・バックグラウンド再生</string>
+    <string name="desc_background_playback">画面消灯時や他アプリを開いている間も、YouTube動画を停止させず日本語吹き替え音声をバックグラウンドで継続再生します</string>
+
     <!-- 操作ボタン -->
     <string name="btn_save">設定を保存して適用</string>
     <string name="btn_reset">推奨デフォルトに戻す</string>

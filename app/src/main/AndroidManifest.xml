@@ -8,6 +8,8 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
 
     <!-- Android 11 (API 30) 以降の TextToSpeech パッケージ可視性定義 -->
     <queries>
@@ -73,6 +75,12 @@
                 android:name="android.support.PARENT_ACTIVITY"
                 android:value=".ui.UniVoiceBrowserActivity" />
         </activity>
+
+        <!-- 画面消灯・バックグラウンド再生用フォアグラウンドサービス -->
+        <service
+            android:name=".service.UniVoicePlaybackService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
 
     </application>
 

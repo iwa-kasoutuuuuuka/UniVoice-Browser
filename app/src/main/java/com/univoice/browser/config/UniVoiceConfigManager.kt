@@ -43,6 +43,7 @@ class UniVoiceConfigManager private constructor(context: Context) {
         private const val KEY_SPEECH_PITCH = "key_speech_pitch"
         private const val KEY_PREFETCH_COUNT = "key_prefetch_count"
         private const val KEY_AD_BLOCK_ENABLED = "key_ad_block_enabled"
+        private const val KEY_BACKGROUND_PLAYBACK_ENABLED = "key_background_playback_enabled"
 
         @Volatile
         private var instance: UniVoiceConfigManager? = null
@@ -76,6 +77,7 @@ class UniVoiceConfigManager private constructor(context: Context) {
         val pitch = prefs.getFloat(KEY_SPEECH_PITCH, 1.0f)
         val prefetchCount = prefs.getInt(KEY_PREFETCH_COUNT, 3)
         val adBlock = prefs.getBoolean(KEY_AD_BLOCK_ENABLED, true)
+        val backgroundPlayback = prefs.getBoolean(KEY_BACKGROUND_PLAYBACK_ENABLED, true)
 
         return UniVoiceSettings(
             currentMode = currentMode,
@@ -89,7 +91,8 @@ class UniVoiceConfigManager private constructor(context: Context) {
             speechSpeed = speed,
             speechPitch = pitch,
             prefetchCount = prefetchCount,
-            adBlockEnabled = adBlock
+            adBlockEnabled = adBlock,
+            backgroundPlaybackEnabled = backgroundPlayback
         )
     }
 
@@ -110,11 +113,12 @@ class UniVoiceConfigManager private constructor(context: Context) {
             putFloat(KEY_SPEECH_PITCH, newSettings.speechPitch)
             putInt(KEY_PREFETCH_COUNT, newSettings.prefetchCount)
             putBoolean(KEY_AD_BLOCK_ENABLED, newSettings.adBlockEnabled)
+            putBoolean(KEY_BACKGROUND_PLAYBACK_ENABLED, newSettings.backgroundPlaybackEnabled)
             apply()
         }
 
         _settingsFlow.value = newSettings
-        Log.i(TAG, "[UniVoiceBrowser] 設定を保存しました。現在のモード: ${newSettings.currentMode.titleJapanese}, 広告ブロック: ${newSettings.adBlockEnabled}")
+        Log.i(TAG, "[UniVoiceBrowser] 設定を保存しました。現在のモード: ${newSettings.currentMode.titleJapanese}, バックグラウンド再生: ${newSettings.backgroundPlaybackEnabled}")
     }
 
     /**
@@ -130,6 +134,14 @@ class UniVoiceConfigManager private constructor(context: Context) {
      */
     fun setAdBlockEnabled(enabled: Boolean) {
         val updated = _settingsFlow.value.copy(adBlockEnabled = enabled)
+        updateSettings(updated)
+    }
+
+    /**
+     * バックグラウンド再生のON/OFF切り替え
+     */
+    fun setBackgroundPlaybackEnabled(enabled: Boolean) {
+        val updated = _settingsFlow.value.copy(backgroundPlaybackEnabled = enabled)
         updateSettings(updated)
     }
 
