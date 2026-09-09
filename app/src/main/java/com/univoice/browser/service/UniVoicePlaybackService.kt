@@ -1,4 +1,4 @@
-﻿package com.univoice.browser.service
+package com.univoice.browser.service
 
 import android.app.Notification
 import android.app.NotificationChannel
@@ -159,6 +159,15 @@ class UniVoicePlaybackService : Service() {
 
     fun updateNotificationText(text: String) {
         try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                if (androidx.core.content.ContextCompat.checkSelfPermission(
+                        this,
+                        android.Manifest.permission.POST_NOTIFICATIONS
+                    ) != android.content.pm.PackageManager.PERMISSION_GRANTED
+                ) {
+                    return
+                }
+            }
             val notification = buildNotification(text)
             val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             manager.notify(NOTIFICATION_ID, notification)

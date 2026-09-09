@@ -642,6 +642,26 @@ adb shell "cat /sdcard/window_dump.xml | grep -o 'resource-id=\"com.univoice.bro
   - `btnCloseCard`: 非表示（閉じる）ボタン (`✕`)
   - `cardRestoreSubtitle`: 復元フローティングピルボタン (`[ 💬 字幕を表示 ]`)
   - `btnDismissError`: ガイダンス通知消去ボタン (`[閉じる]`)
+  - `btnBackgroundAudio`: 画面消灯・バックグラウンド再生切替ボタン (`🎵`)
+
+### 5. 画面消灯・バックグラウンド再生の検証
+端末の画面消灯（電源ボタン押下）時や他アプリへの切り替え時に、フォアグラウンドサービスとWakeLockが正常に連動しているかをLogcatで検証できます：
+
+```bash
+adb logcat -s UniVoicePlaybackService:D UniVoiceBrowserActivity:I
+```
+
+- **画面消灯時の正常ログ例**:
+  ```text
+  I/UniVoiceBrowserActivity: [UniVoiceBrowser] バックグラウンド再生が有効なため、WebViewと音声パイプラインを停止させず維持します
+  D/UniVoicePlaybackService: [UniVoiceBrowser] Partial WakeLock を取得しました (画面消灯保護)
+  I/UniVoicePlaybackService: [UniVoiceBrowser] バックグラウンド再生フォアグラウンドサービスを開始しました
+  ```
+- **画面再点灯・アプリ復帰時の正常ログ例**:
+  ```text
+  D/UniVoicePlaybackService: [UniVoiceBrowser] WakeLock を解放しました
+  I/UniVoicePlaybackService: [UniVoiceBrowser] バックグラウンド再生フォアグラウンドサービスを停止しました
+  ```
 
 ---
 
@@ -685,6 +705,11 @@ adb shell "cat /sdcard/window_dump.xml | grep -o 'resource-id=\"com.univoice.bro
 **A**: Google AI Studio で発行できる Gemini 1.5 Flash の無料枠（1日 1,500リクエスト / クレジットカード登録不要）により、**毎日およそ 3〜5時間の動画（無音・BGMが多い動画なら10時間以上）を完全無料で最高品質翻訳**できます。
 本アプリは文単位のデバウンス（約3〜5秒分を1リクエストに集約）とキャッシュ最適化を実装しているため、一般的な日常利用で無料枠を使い切ることは稀です。
 万が一上限に達した場合でも、アプリがクラッシュすることなく即座に内蔵の代替無料Web翻訳エンジンへ自動フォールバックするため、視聴を止めることなく安全に楽しめます。
+
+#### Q12. スマホの画面を消した状態（ポケットに入れた状態）でも聴けますか？
+**A**: はい、可能です。最新版（v1.0.3）より「画面消灯・バックグラウンド再生機能」を標準搭載しています。
+YouTubeの自動停止（Page Visibility API）を回避し、フォアグラウンドサービスとWakeLockによって画面消灯中もCPUと音声パイプラインを休まず稼働させます。
+トップバーの音符ボタン（`🎵`）または設定画面からいつでもON/OFFを切り替えることができます。
 
 ---
 
