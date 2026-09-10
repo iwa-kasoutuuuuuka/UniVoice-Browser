@@ -1,4 +1,4 @@
-<resources>
+﻿<resources>
     <string name="app_name">UniVoice ブラウザ</string>
     <string name="title_settings">UniVoice 動作設定</string>
 
@@ -11,9 +11,24 @@
     <string name="btn_go">移動</string>
 
     <!-- 設定画面セクション -->
+    <string name="section_execution_style">翻訳・視聴スタイル (ストリーミング / バッチ)</string>
     <string name="section_modes">動画翻訳・音声合成 動作モード</string>
     <string name="section_manual_config">カスタム詳細設定 (手動モード時)</string>
     <string name="section_system_perf">ハードウェア・動作制御</string>
+    <string name="section_cache_mgmt">キャッシュとプライバシー管理</string>
+
+    <!-- 視聴スタイル -->
+    <string name="style_streaming_title">リアルタイム・ストリーミング (従来方式)</string>
+    <string name="style_streaming_desc">待ち時間ゼロで即座に動画を再生し、細切れ字幕を逐次先読み翻訳して音声再生します。</string>
+
+    <string name="style_batch_download_title">ダウンロード徹底バッチ翻訳 (新機能・高精度)</string>
+    <string name="style_batch_download_desc">動画・音声を事前に取得し、強力なAIモデルで全編の文脈把握・尺合わせ翻訳・高品質吹き替えを実施します。</string>
+
+    <!-- バッチアプローチ -->
+    <string name="batch_approach_title">事前ダウンロード時の処理アプローチ</string>
+    <string name="batch_approach_a">アプローチA: 完全端末内完結 (Whisper/Edge LLM/VOICEVOX)</string>
+    <string name="batch_approach_b">アプローチB: クラウドAI連携型 (Gemini 1.5 Pro/クラウドTTS)</string>
+    <string name="batch_approach_c">アプローチC: ハイブリッド型 (推奨: 字幕優先抽出+Gemini一括)</string>
 
     <!-- 4つの処理モード -->
     <string name="mode_pure_local_title">完全ローカル</string>
@@ -52,6 +67,11 @@
 
     <string name="label_background_playback">画面消灯・バックグラウンド再生</string>
     <string name="desc_background_playback">画面消灯時や他アプリを開いている間も、YouTube動画を停止させず日本語吹き替え音声をバックグラウンドで継続再生します</string>
+
+    <string name="label_cache_cleanup">視聴完了データ翌日自動消去（24時間）</string>
+    <string name="desc_cache_cleanup">元音声一時ファイルは文字起こし完了直後に即時削除。合成音声・翻訳字幕は視聴完了の翌日に自動削除し端末容量を保護します</string>
+
+    <string name="btn_clear_cache_now">今すぐバッチキャッシュを全削除</string>
 
     <!-- 操作ボタン -->
     <string name="btn_save">設定を保存して適用</string>

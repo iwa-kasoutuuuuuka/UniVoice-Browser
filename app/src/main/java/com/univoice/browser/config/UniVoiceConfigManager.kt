@@ -1,8 +1,10 @@
-package com.univoice.browser.config
+﻿package com.univoice.browser.config
 
 import android.content.Context
 import android.content.SharedPreferences
 import android.util.Log
+import com.univoice.browser.model.BatchApproach
+import com.univoice.browser.model.ExecutionStyle
 import com.univoice.browser.model.ProcessingMode
 import com.univoice.browser.model.TranslationEngineType
 import com.univoice.browser.model.TtsEngineType
@@ -13,7 +15,6 @@ import kotlinx.coroutines.flow.asStateFlow
 
 /**
  * UniVoice Browser の設定管理およびモード制御を行うコアマネージャー
- * 4つの動作モードの切り替えおよび永続化を担当
  */
 class UniVoiceConfigManager private constructor(context: Context) {
 
@@ -32,6 +33,8 @@ class UniVoiceConfigManager private constructor(context: Context) {
 
         // キー定義
         private const val KEY_PROCESSING_MODE = "key_processing_mode"
+        private const val KEY_EXECUTION_STYLE = "key_execution_style"
+        private const val KEY_BATCH_APPROACH = "key_batch_approach"
         private const val KEY_MANUAL_TRANS_ENGINE = "key_manual_trans_engine"
         private const val KEY_MANUAL_TTS_ENGINE = "key_manual_tts_engine"
         private const val KEY_GEMINI_API_KEY = "key_gemini_api_key"
@@ -44,6 +47,7 @@ class UniVoiceConfigManager private constructor(context: Context) {
         private const val KEY_PREFETCH_COUNT = "key_prefetch_count"
         private const val KEY_AD_BLOCK_ENABLED = "key_ad_block_enabled"
         private const val KEY_BACKGROUND_PLAYBACK_ENABLED = "key_background_playback_enabled"
+        private const val KEY_AUTO_CLEAN_CACHE_HOURS = "key_auto_clean_cache_hours"
 
         @Volatile
         private var instance: UniVoiceConfigManager? = null
@@ -62,6 +66,12 @@ class UniVoiceConfigManager private constructor(context: Context) {
         val modeId = prefs.getString(KEY_PROCESSING_MODE, ProcessingMode.HYBRID_OPTIMAL.id)
         val currentMode = ProcessingMode.fromId(modeId)
 
+        val execStyleId = prefs.getString(KEY_EXECUTION_STYLE, ExecutionStyle.STREAMING.id)
+        val executionStyle = ExecutionStyle.fromId(execStyleId)
+
+        val batchApproachId = prefs.getString(KEY_BATCH_APPROACH, BatchApproach.APPROACH_C_HYBRID.id)
+        val batchApproach = BatchApproach.fromId(batchApproachId)
+
         val transEngineId = prefs.getString(KEY_MANUAL_TRANS_ENGINE, TranslationEngineType.GEMINI_CLOUD.id)
         val manualTransEngine = TranslationEngineType.fromId(transEngineId)
 
@@ -71,16 +81,19 @@ class UniVoiceConfigManager private constructor(context: Context) {
         val apiKey = prefs.getString(KEY_GEMINI_API_KEY, "") ?: ""
         val modelName = prefs.getString(KEY_GEMINI_MODEL_NAME, "gemini-1.5-flash") ?: "gemini-1.5-flash"
         val endpoint = prefs.getString(KEY_CUSTOM_ENDPOINT_URL, "") ?: ""
-        val hwAccel = prefs.getBoolean(KEY_HARDWARE_ACCEL, true) // Snapdragon 8 Gen 2 / Poco F6 Pro デフォルトON
+        val hwAccel = prefs.getBoolean(KEY_HARDWARE_ACCEL, true)
         val audioSuppression = prefs.getBoolean(KEY_AUDIO_SUPPRESSION, true)
         val speed = prefs.getFloat(KEY_SPEECH_SPEED, 1.0f)
         val pitch = prefs.getFloat(KEY_SPEECH_PITCH, 1.0f)
         val prefetchCount = prefs.getInt(KEY_PREFETCH_COUNT, 3)
         val adBlock = prefs.getBoolean(KEY_AD_BLOCK_ENABLED, true)
         val backgroundPlayback = prefs.getBoolean(KEY_BACKGROUND_PLAYBACK_ENABLED, true)
+        val autoCleanHours = prefs.getLong(KEY_AUTO_CLEAN_CACHE_HOURS, 24L)
 
         return UniVoiceSettings(
             currentMode = currentMode,
+            executionStyle = executionStyle,
+            batchApproach = batchApproach,
             manualTranslationEngine = manualTransEngine,
             manualTtsEngine = manualTtsEngine,
             geminiApiKey = apiKey,
@@ -92,7 +105,8 @@ class UniVoiceConfigManager private constructor(context: Context) {
             speechPitch = pitch,
             prefetchCount = prefetchCount,
             adBlockEnabled = adBlock,
-            backgroundPlaybackEnabled = backgroundPlayback
+            backgroundPlaybackEnabled = backgroundPlayback,
+            autoCleanCacheHours = autoCleanHours
         )
     }
 
@@ -102,6 +116,8 @@ class UniVoiceConfigManager private constructor(context: Context) {
     fun updateSettings(newSettings: UniVoiceSettings) {
         prefs.edit().apply {
             putString(KEY_PROCESSING_MODE, newSettings.currentMode.id)
+            putString(KEY_EXECUTION_STYLE, newSettings.executionStyle.id)
+            putString(KEY_BATCH_APPROACH, newSettings.batchApproach.id)
             putString(KEY_MANUAL_TRANS_ENGINE, newSettings.manualTranslationEngine.id)
             putString(KEY_MANUAL_TTS_ENGINE, newSettings.manualTtsEngine.id)
             putString(KEY_GEMINI_API_KEY, newSettings.geminiApiKey)
@@ -114,53 +130,55 @@ class UniVoiceConfigManager private constructor(context: Context) {
             putInt(KEY_PREFETCH_COUNT, newSettings.prefetchCount)
             putBoolean(KEY_AD_BLOCK_ENABLED, newSettings.adBlockEnabled)
             putBoolean(KEY_BACKGROUND_PLAYBACK_ENABLED, newSettings.backgroundPlaybackEnabled)
+            putLong(KEY_AUTO_CLEAN_CACHE_HOURS, newSettings.autoCleanCacheHours)
             apply()
         }
 
         _settingsFlow.value = newSettings
-        Log.i(TAG, "[UniVoiceBrowser] 設定を保存しました。現在のモード: ${newSettings.currentMode.titleJapanese}, バックグラウンド再生: ${newSettings.backgroundPlaybackEnabled}")
+        Log.i(TAG, "[UniVoiceBrowser] 設定を保存しました。スタイル: ${newSettings.executionStyle.titleJapanese}, バッチアプローチ: ${newSettings.batchApproach.titleJapanese}")
     }
 
-    /**
-     * 動作モードを直接切り替え
-     */
+    fun setExecutionStyle(style: ExecutionStyle) {
+        val updated = _settingsFlow.value.copy(executionStyle = style)
+        updateSettings(updated)
+    }
+
+    fun setBatchApproach(approach: BatchApproach) {
+        val updated = _settingsFlow.value.copy(batchApproach = approach)
+        updateSettings(updated)
+    }
+
     fun setProcessingMode(mode: ProcessingMode) {
         val updated = _settingsFlow.value.copy(currentMode = mode)
         updateSettings(updated)
     }
 
-    /**
-     * 広告ブロックのON/OFF切り替え
-     */
     fun setAdBlockEnabled(enabled: Boolean) {
         val updated = _settingsFlow.value.copy(adBlockEnabled = enabled)
         updateSettings(updated)
     }
 
-    /**
-     * バックグラウンド再生のON/OFF切り替え
-     */
     fun setBackgroundPlaybackEnabled(enabled: Boolean) {
         val updated = _settingsFlow.value.copy(backgroundPlaybackEnabled = enabled)
         updateSettings(updated)
     }
 
-    /**
-     * デフォルト設定（最適構成 - ハイブリッド推奨モード）にリセット
-     */
     fun resetToRecommendedDefaults() {
         val currentApiKey = _settingsFlow.value.geminiApiKey
         val defaults = UniVoiceSettings(
             currentMode = ProcessingMode.HYBRID_OPTIMAL,
-            geminiApiKey = currentApiKey, // ユーザーが入力したAPIキーは保持
+            executionStyle = ExecutionStyle.STREAMING,
+            batchApproach = BatchApproach.APPROACH_C_HYBRID,
+            geminiApiKey = currentApiKey,
             hardwareAcceleration = true,
             audioSuppressionEnabled = true,
             speechSpeed = 1.0f,
             speechPitch = 1.0f,
             prefetchCount = 3,
-            adBlockEnabled = true
+            adBlockEnabled = true,
+            autoCleanCacheHours = 24L
         )
         updateSettings(defaults)
-        Log.i(TAG, "[UniVoiceBrowser] 推奨デフォルト設定（最適構成）にリセットしました")
+        Log.i(TAG, "[UniVoiceBrowser] 推奨デフォルト設定にリセットしました")
     }
 }

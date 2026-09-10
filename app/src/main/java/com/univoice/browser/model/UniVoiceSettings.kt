@@ -1,10 +1,12 @@
-package com.univoice.browser.model
+﻿package com.univoice.browser.model
 
 /**
  * UniVoice Browser の動作設定モデル
  */
 data class UniVoiceSettings(
     val currentMode: ProcessingMode = ProcessingMode.HYBRID_OPTIMAL,
+    val executionStyle: ExecutionStyle = ExecutionStyle.STREAMING,
+    val batchApproach: BatchApproach = BatchApproach.APPROACH_C_HYBRID,
     val manualTranslationEngine: TranslationEngineType = TranslationEngineType.GEMINI_CLOUD,
     val manualTtsEngine: TtsEngineType = TtsEngineType.LOCAL_VOICEVOX_ONNX,
     val geminiApiKey: String = "",
@@ -16,7 +18,8 @@ data class UniVoiceSettings(
     val speechPitch: Float = 1.0f,
     val prefetchCount: Int = 3,
     val adBlockEnabled: Boolean = true,
-    val backgroundPlaybackEnabled: Boolean = true
+    val backgroundPlaybackEnabled: Boolean = true,
+    val autoCleanCacheHours: Long = 24L
 ) {
     /**
      * 現在の動作モードに応じた実効翻訳エンジンを取得

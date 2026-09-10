@@ -7,8 +7,11 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.univoice.browser.R
+import com.univoice.browser.batch.BatchDownloadPipeline
 import com.univoice.browser.config.UniVoiceConfigManager
 import com.univoice.browser.databinding.ActivityUnivoiceSettingsBinding
+import com.univoice.browser.model.BatchApproach
+import com.univoice.browser.model.ExecutionStyle
 import com.univoice.browser.model.ProcessingMode
 import com.univoice.browser.model.TranslationEngineType
 import com.univoice.browser.model.TtsEngineType
@@ -17,7 +20,8 @@ import kotlinx.coroutines.launch
 
 /**
  * UniVoice Browser の動作設定画面
- * 4つの処理モード選択および手動カスタマイズを提供
+ * 視聴スタイル切替（ストリーミング vs バッチ翻訳）、バッチアプローチ（A/B/C）、
+ * 4つの処理モード選択および手動カスタマイズ、キャッシュ管理を提供
  */
 class UniVoiceSettingsActivity : AppCompatActivity() {
 
@@ -41,6 +45,7 @@ class UniVoiceSettingsActivity : AppCompatActivity() {
 
         setupToolbar()
         setupSpinners()
+        setupExecutionStyleListeners()
         setupModeSelectionListeners()
         setupActionButtons()
         loadCurrentSettingsIntoUi()
@@ -52,19 +57,30 @@ class UniVoiceSettingsActivity : AppCompatActivity() {
         }
     }
 
-    /**
-     * 手動モード用のドロップダウンアダプター初期化
-     */
     private fun setupSpinners() {
-        // 翻訳エンジンのリスト
         val transEngineItems = TranslationEngineType.values().map { it.titleJapanese }
         val transAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, transEngineItems)
         binding.spinnerTranslationEngine.adapter = transAdapter
 
-        // 音声合成エンジンのリスト
         val ttsEngineItems = TtsEngineType.values().map { it.titleJapanese }
         val ttsAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, ttsEngineItems)
         binding.spinnerTtsEngine.adapter = ttsAdapter
+    }
+
+    /**
+     * 視聴スタイル（リアルタイム vs バッチ翻訳）リスナー
+     */
+    private fun setupExecutionStyleListeners() {
+        binding.rgExecutionStyle.setOnCheckedChangeListener { _, checkedId ->
+            when (checkedId) {
+                R.id.rbStyleStreaming -> {
+                    binding.layoutBatchDetails.visibility = View.GONE
+                }
+                R.id.rbStyleBatch -> {
+                    binding.layoutBatchDetails.visibility = View.VISIBLE
+                }
+            }
+        }
     }
 
     /**
@@ -82,7 +98,6 @@ class UniVoiceSettingsActivity : AppCompatActivity() {
                     binding.cardGeminiApiKey.visibility = View.VISIBLE
                 }
                 R.id.rbManual -> {
-                    // 手動設定時のみサブオプションを展開
                     binding.layoutManualSettings.visibility = View.VISIBLE
                     binding.cardGeminiApiKey.visibility = View.VISIBLE
                 }
@@ -110,7 +125,7 @@ class UniVoiceSettingsActivity : AppCompatActivity() {
     }
 
     /**
-     * 保存およびリセットボタン、追加機能ボタンのリスナー設定
+     * 保存およびリセットボタン、キャッシュクリア等のリスナー設定
      */
     private fun setupActionButtons() {
         binding.btnSaveSettings.setOnClickListener {
@@ -121,6 +136,17 @@ class UniVoiceSettingsActivity : AppCompatActivity() {
             configManager.resetToRecommendedDefaults()
             loadCurrentSettingsIntoUi()
             Toast.makeText(this, "推奨デフォルト（最適構成）に復元しました", Toast.LENGTH_SHORT).show()
+        }
+
+        // 手動キャッシュ全削除
+        binding.btnClearBatchCache.setOnClickListener {
+            val pipeline = BatchDownloadPipeline(
+                context = this,
+                geminiApiKey = configManager.currentSettings.geminiApiKey,
+                batchApproach = configManager.currentSettings.batchApproach
+            )
+            pipeline.clearAllBatchCache()
+            Toast.makeText(this, "バッチ翻訳・吹き替えキャッシュを完全に消去しました", Toast.LENGTH_SHORT).show()
         }
 
         // 無料Gemini APIキー取得リンク
@@ -197,6 +223,22 @@ class UniVoiceSettingsActivity : AppCompatActivity() {
     private fun loadCurrentSettingsIntoUi() {
         val settings = configManager.currentSettings
 
+        // 視聴スタイル
+        if (settings.executionStyle == ExecutionStyle.BATCH_DOWNLOAD) {
+            binding.rbStyleBatch.isChecked = true
+            binding.layoutBatchDetails.visibility = View.VISIBLE
+        } else {
+            binding.rbStyleStreaming.isChecked = true
+            binding.layoutBatchDetails.visibility = View.GONE
+        }
+
+        // バッチアプローチ
+        when (settings.batchApproach) {
+            BatchApproach.APPROACH_A_LOCAL -> binding.rbApproachA.isChecked = true
+            BatchApproach.APPROACH_B_CLOUD -> binding.rbApproachB.isChecked = true
+            BatchApproach.APPROACH_C_HYBRID -> binding.rbApproachC.isChecked = true
+        }
+
         // 動作モード
         when (settings.currentMode) {
             ProcessingMode.PURE_LOCAL -> {
@@ -243,6 +285,19 @@ class UniVoiceSettingsActivity : AppCompatActivity() {
      * UIの入力値を取得し保存
      */
     private fun saveSettingsFromUi() {
+        val selectedExecutionStyle = if (binding.rbStyleBatch.isChecked) {
+            ExecutionStyle.BATCH_DOWNLOAD
+        } else {
+            ExecutionStyle.STREAMING
+        }
+
+        val selectedBatchApproach = when (binding.rgBatchApproaches.checkedRadioButtonId) {
+            R.id.rbApproachA -> BatchApproach.APPROACH_A_LOCAL
+            R.id.rbApproachB -> BatchApproach.APPROACH_B_CLOUD
+            R.id.rbApproachC -> BatchApproach.APPROACH_C_HYBRID
+            else -> BatchApproach.APPROACH_C_HYBRID
+        }
+
         val selectedMode = when (binding.rgProcessingModes.checkedRadioButtonId) {
             R.id.rbPureLocal -> ProcessingMode.PURE_LOCAL
             R.id.rbPureApi -> ProcessingMode.PURE_API
@@ -267,6 +322,8 @@ class UniVoiceSettingsActivity : AppCompatActivity() {
         val speed = binding.sliderTtsSpeed.value
 
         val newSettings = configManager.currentSettings.copy(
+            executionStyle = selectedExecutionStyle,
+            batchApproach = selectedBatchApproach,
             currentMode = selectedMode,
             manualTranslationEngine = selectedTransEngine,
             manualTtsEngine = selectedTtsEngine,

@@ -1,4 +1,4 @@
-package com.univoice.browser.pipeline
+﻿package com.univoice.browser.pipeline
 
 import android.util.Log
 
@@ -62,5 +62,18 @@ object DynamicTimeStretcher {
         )
 
         return targetSpeed
+    }
+
+    /**
+     * 生成されたPCM音声波形（またはミリ秒長）とタイムスロット（開始時刻〜終了時刻）の
+     * ズレから波形タイムストレッチ率（再生速度比率）を厳密計算
+     */
+    fun calculateWaveformStretchRatio(
+        actualAudioDurationMs: Long,
+        targetSlotDurationMs: Long
+    ): Float {
+        if (actualAudioDurationMs <= 0 || targetSlotDurationMs <= 0) return 1.0f
+        val ratio = actualAudioDurationMs.toFloat() / targetSlotDurationMs.toFloat()
+        return ratio.coerceIn(0.7f, 1.6f)
     }
 }

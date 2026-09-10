@@ -83,6 +83,139 @@
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
+            <!-- セクション0: 視聴・翻訳スタイル (ストリーミング vs バッチ翻訳) -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="8dp"
+                android:text="@string/section_execution_style"
+                android:textColor="@color/on_surface"
+                android:textSize="16sp"
+                android:textStyle="bold" />
+
+            <com.google.android.material.card.MaterialCardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="16dp"
+                app:cardBackgroundColor="@color/surface"
+                app:cardCornerRadius="12dp"
+                app:cardElevation="2dp"
+                app:strokeColor="@color/divider_color"
+                app:strokeWidth="1dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="12dp">
+
+                    <RadioGroup
+                        android:id="@+id/rgExecutionStyle"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content">
+
+                        <RadioButton
+                            android:id="@+id/rbStyleStreaming"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:buttonTint="@color/primary"
+                            android:text="@string/style_streaming_title"
+                            android:textColor="@color/on_surface"
+                            android:textSize="15sp"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="32dp"
+                            android:layout_marginBottom="12dp"
+                            android:text="@string/style_streaming_desc"
+                            android:textColor="@color/on_surface_variant"
+                            android:textSize="12sp" />
+
+                        <View
+                            android:layout_width="match_parent"
+                            android:layout_height="1dp"
+                            android:layout_marginBottom="8dp"
+                            android:background="@color/divider_color" />
+
+                        <RadioButton
+                            android:id="@+id/rbStyleBatch"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:buttonTint="@color/primary"
+                            android:text="@string/style_batch_download_title"
+                            android:textColor="@color/on_surface"
+                            android:textSize="15sp"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="32dp"
+                            android:text="@string/style_batch_download_desc"
+                            android:textColor="@color/on_surface_variant"
+                            android:textSize="12sp" />
+                    </RadioGroup>
+
+                    <!-- バッチ詳細オプション（バッチ翻訳選択時に展開） -->
+                    <LinearLayout
+                        android:id="@+id/layoutBatchDetails"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="12dp"
+                        android:background="@color/surface_variant"
+                        android:orientation="vertical"
+                        android:padding="10dp"
+                        android:visibility="gone"
+                        tools:visibility="visible">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginBottom="6dp"
+                            android:text="@string/batch_approach_title"
+                            android:textColor="@color/primary"
+                            android:textSize="13sp"
+                            android:textStyle="bold" />
+
+                        <RadioGroup
+                            android:id="@+id/rgBatchApproaches"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content">
+
+                            <RadioButton
+                                android:id="@+id/rbApproachC"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:buttonTint="@color/primary"
+                                android:text="@string/batch_approach_c"
+                                android:textColor="@color/on_surface"
+                                android:textSize="13sp"
+                                android:textStyle="bold" />
+
+                            <RadioButton
+                                android:id="@+id/rbApproachB"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:buttonTint="@color/primary"
+                                android:text="@string/batch_approach_b"
+                                android:textColor="@color/on_surface"
+                                android:textSize="13sp" />
+
+                            <RadioButton
+                                android:id="@+id/rbApproachA"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:buttonTint="@color/primary"
+                                android:text="@string/batch_approach_a"
+                                android:textColor="@color/on_surface"
+                                android:textSize="13sp" />
+                        </RadioGroup>
+                    </LinearLayout>
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
             <!-- セクション1: 動作モードの選択 -->
             <TextView
                 android:layout_width="wrap_content"
@@ -592,7 +725,62 @@
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
-            <!-- セクション5: 語学学習・日英対訳スクリプト -->
+            <!-- セクション5: キャッシュ・プライバシー管理 -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="8dp"
+                android:text="@string/section_cache_mgmt"
+                android:textColor="@color/on_surface"
+                android:textSize="16sp"
+                android:textStyle="bold" />
+
+            <com.google.android.material.card.MaterialCardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="16dp"
+                app:cardBackgroundColor="@color/surface"
+                app:cardCornerRadius="12dp"
+                app:cardElevation="2dp"
+                app:strokeColor="@color/divider_color"
+                app:strokeWidth="1dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/label_cache_cleanup"
+                        android:textColor="@color/on_surface"
+                        android:textSize="14sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:text="@string/desc_cache_cleanup"
+                        android:textColor="@color/on_surface_variant"
+                        android:textSize="12sp" />
+
+                    <Button
+                        android:id="@+id/btnClearBatchCache"
+                        style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                        android:layout_width="match_parent"
+                        android:layout_height="44dp"
+                        android:layout_marginTop="12dp"
+                        android:text="@string/btn_clear_cache_now"
+                        android:textColor="#C62828"
+                        android:textSize="13sp"
+                        app:strokeColor="#EF9A9A" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- セクション6: 語学学習・日英対訳スクリプト -->
             <Button
                 android:id="@+id/btnOpenTranscripts"
                 style="@style/Widget.MaterialComponents.Button.OutlinedButton"

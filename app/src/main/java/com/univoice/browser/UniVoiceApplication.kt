@@ -1,4 +1,4 @@
-﻿package com.univoice.browser
+package com.univoice.browser
 
 import android.app.Application
 import android.content.Context
@@ -14,6 +14,12 @@ class UniVoiceApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         enforceJapaneseLocale(this)
+
+        // 翌日自動キャッシュクリーンアップ（定期巡回）を開始
+        com.univoice.browser.batch.CacheCleanupManager.startDailyCleanup(
+            this,
+            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Default)
+        )
     }
 
     override fun attachBaseContext(base: Context) {

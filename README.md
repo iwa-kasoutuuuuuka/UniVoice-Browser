@@ -12,31 +12,31 @@
 [![UI Language](https://img.shields.io/badge/UI-Japanese%20Only%20%28100%25%29-red.svg)](#完全日本語ui設計)
 [![Build Status](https://img.shields.io/badge/Build-Passing-brightgreen.svg)]()
 [![Security](https://img.shields.io/badge/Security-Hardened-blue.svg)]()
-[![Release APK](https://img.shields.io/badge/APK_Download-v1.0.4_(51.8MB)-blueviolet.svg?logo=android)](release/UniVoiceBrowser-v1.0.4.apk)
+[![Release APK](https://img.shields.io/badge/APK_Download-v1.1.0_(51.8MB)-blueviolet.svg?logo=android)](release/UniVoiceBrowser-v1.1.0.apk)
 
 <p align="center">
-  <a href="https://github.com/iwa-kasoutuuuuuka/UniVoice-Browser/raw/main/release/UniVoiceBrowser-v1.0.4.apk">
-    <img src="https://img.shields.io/badge/📥_今すぐダウンロード-UniVoiceBrowser--v1.0.4.apk_(51.8MB)-2ea44f?style=for-the-badge&logo=android&logoColor=white" alt="APK直接ダウンロード" />
+  <a href="https://github.com/iwa-kasoutuuuuuka/UniVoice-Browser/raw/main/release/UniVoiceBrowser-v1.1.0.apk">
+    <img src="https://img.shields.io/badge/📥_今すぐダウンロード-UniVoiceBrowser--v1.1.0.apk_(51.8MB)-2ea44f?style=for-the-badge&logo=android&logoColor=white" alt="APK直接ダウンロード" />
   </a>
 </p>
 
 > [!TIP]
 > **ワンタップで今すぐインストール可能**: リリース版APK（署名済み）は上記バッジまたは以下のダイレクトリンクからダウンロードして、Android端末（Android 8.0以降 / Poco F6 Pro・Galaxy・Pixel・エミュレーター等）ですぐにご利用いただけます。
 > 
-> 🔗 **ダイレクトダウンロード**: [UniVoiceBrowser-v1.0.4.apk (約51.8MB)](https://github.com/iwa-kasoutuuuuuka/UniVoice-Browser/raw/main/release/UniVoiceBrowser-v1.0.4.apk)  
-> 🔗 **リポジトリ内ファイルパス**: [`release/UniVoiceBrowser-v1.0.4.apk`](release/UniVoiceBrowser-v1.0.4.apk)
+> 🔗 **ダイレクトダウンロード**: [UniVoiceBrowser-v1.1.0.apk (約51.8MB)](https://github.com/iwa-kasoutuuuuuka/UniVoice-Browser/raw/main/release/UniVoiceBrowser-v1.1.0.apk)  
+> 🔗 **リポジトリ内ファイルパス**: [`release/UniVoiceBrowser-v1.1.0.apk`](release/UniVoiceBrowser-v1.1.0.apk)
 
 **UniVoice Browser** は、YouTubeなどの動画視聴時に元の外国語（英語等）音声をHTML5レベルで完全抑制（ミュート）し、リアルタイムに字幕をキャプチャ・翻訳して、流暢な日本語音声（Text-to-Speech）をオーバーレイ再生するAndroid専用の次世代AIブラウザです。
 
-特に **Poco F6 Pro**（Snapdragon 8 Gen 2、12GB+ RAM）をはじめとするフラッグシップ・ハイスペック端末のポテンシャルを極限まで引き出すよう設計されており、NPU/GPUハードウェアアクセラレーションによる完全ローカル処理から、超低遅延クラウドAPI処理まで、用途に合わせた**4つの動作モード**をシームレスに切り替えることができます。
+特に **Poco F6 Pro**（Snapdragon 8 Gen 2、12GB+ RAM）をはじめとするフラッグシップ・ハイスペック端末のポテンシャルを極限まで引き出すよう設計されており、NPU/GPUハードウェアアクセラレーションによる完全ローカル処理から、超低遅延クラウドAPI処理まで、用途に合わせた**4つの動作モード**、さらに新機能**「事前ダウンロード型バッチ徹底翻訳」**をシームレスに切り替えることができます。
 
 ---
 
 ## 📱 アプリ実機動作プレビュー
 
-| ブラウザメイン画面 (動画検知・字幕オーバーレイ) | 4モード動作設定画面 (100% 完全日本語UI) |
+| ブラウザメイン画面 (動画検知・字幕オーバーレイ) | 新機能：バッチ徹底翻訳・キャッシュ管理設定 |
 | :---: | :---: |
-| <img src="docs/images/univoice_browser_running.png" width="320" alt="UniVoice ブラウザ画面" /> | <img src="docs/images/univoice_settings_running.png" width="320" alt="UniVoice 設定画面" /> |
+| <img src="docs/images/univoice_browser_running.png" width="320" alt="UniVoice ブラウザ画面" /> | <img src="docs/images/univoice_batch_settings.png" width="320" alt="UniVoice バッチ翻訳設定画面" /> |
 
 ---
 
@@ -105,7 +105,16 @@
 
 ## 🔄 最近のアップデート・更新履歴 (Changelog)
 
-### 【最新版】v1.0.4 メジャーアップデート内容 (versionCode: 5)
+### 【最新版】v1.1.0 メジャーアップデート内容 (versionCode: 6)
+
+| 項目 | 改善・修正の詳細内容 |
+| :--- | :--- |
+| **🚀 事前ダウンロード型バッチ徹底翻訳・吹き替え機能の新設** | 従来の「リアルタイム・ストリーミング」に加え、設定画面から**「ダウンロード徹底バッチ翻訳」**を選択可能に。<br>即時再生の制約を解除し、バックグラウンドで時間をかけて最高峰のAIモデルを適用することで、圧倒的な翻訳精度と自然な吹き替えを実現。 |
+| **🎯 3大アプローチの自由選択 (A/B/C)** | ユーザーの利用環境や好みに合わせて3種類のアプローチを切り替え可能：<br>・**アプローチA（完全端末内完結）**: Snapdragon 8 Gen 2のNPU/GPUを最大活用し、Whisper＋ローカルEdge LLM＋VOICEVOX ONNXで完全オフライン処理（通信費・API代0円）。<br>・**アプローチB（クラウドAI連携型）**: Gemini 1.5 Pro等の長大文脈モデルによる最高峰の一括翻訳＋高品質クラウドTTS吹き替え。<br>・**アプローチC（ハイブリッド型・推奨）**: YouTube既存字幕を優先抽出（無い場合のみ音声ASRへフォールバック）し、Gemini一括翻訳と組み合わせて最速・最高品質を両立。 |
+| **⚖️ 尺合わせ（2重リップシンク）機構** | 英語と日本語の音節長の違いによるズレを根本解消：<br>・**プロンプト尺制約**: 発話許容秒数（Duration）から目標文字数（秒数×6.5文字）を算出し、LLMプロンプトで時間内に自然に読み切れる話し言葉・要約での出力を強制。<br>・**波形タイムストレッチ**: `DynamicTimeStretcher.calculateWaveformStretchRatio` により、合成音声波形とタイムスロットの微小な誤差を自動補正。 |
+| **🛡️ プラットフォーム規約遵守＆翌日自動消去キャッシュ管理** | 端末ストレージの逼迫と規約リスクを徹底防止：<br>・**元音声一時ファイルの即時削除**: 音声文字起こし（ASR）が完了した直後に、一時ダウンロードされた音声ファイルを即座に自動削除。<br>・**翌日（24時間後）自動ガベージコレクション**: `CacheCleanupManager` がバックグラウンドで巡回し、視聴完了から24時間経過した合成音声・翻訳データを自動消去。<br>・**手動キャッシュ全削除ボタン**: 設定画面の「キャッシュとプライバシー管理」からワンタップで即座にストレージを解放可能。 |
+
+### v1.0.4 メジャーアップデート内容 (versionCode: 5)
 
 | 項目 | 改善・修正の詳細内容 |
 | :--- | :--- |
