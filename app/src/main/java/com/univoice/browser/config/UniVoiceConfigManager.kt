@@ -1,4 +1,4 @@
-﻿package com.univoice.browser.config
+package com.univoice.browser.config
 
 import android.content.Context
 import android.content.SharedPreferences
@@ -79,7 +79,7 @@ class UniVoiceConfigManager private constructor(context: Context) {
         val manualTtsEngine = TtsEngineType.fromId(ttsEngineId)
 
         val apiKey = prefs.getString(KEY_GEMINI_API_KEY, "") ?: ""
-        val modelName = prefs.getString(KEY_GEMINI_MODEL_NAME, "gemini-1.5-flash") ?: "gemini-1.5-flash"
+        val modelName = prefs.getString(KEY_GEMINI_MODEL_NAME, "gemini-1.5-flash-latest") ?: "gemini-1.5-flash-latest"
         val endpoint = prefs.getString(KEY_CUSTOM_ENDPOINT_URL, "") ?: ""
         val hwAccel = prefs.getBoolean(KEY_HARDWARE_ACCEL, true)
         val audioSuppression = prefs.getBoolean(KEY_AUDIO_SUPPRESSION, true)

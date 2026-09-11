@@ -80,42 +80,66 @@ class CloudGeminiTranslationEngine(
                 )
 
                 val jsonBody = gson.toJson(requestDto)
-                val targetUrl = if (customEndpoint.isNotBlank()) {
-                    customEndpoint
+                val candidateModels = if (customEndpoint.isNotBlank()) {
+                    listOf(modelName)
                 } else {
-                    "$BASE_URL$modelName:generateContent"
+                    listOf(modelName.trim(), "gemini-1.5-flash-latest", "gemini-1.5-flash", "gemini-2.0-flash").distinct().filter { it.isNotBlank() }
                 }
 
-                val request = Request.Builder()
-                    .url(targetUrl)
-                    .addHeader("x-goog-api-key", apiKey)
-                    .addHeader("Content-Type", "application/json")
-                    .post(jsonBody.toRequestBody("application/json; charset=utf-8".toMediaType()))
-                    .build()
+                var lastError = Exception("Gemini呼び出し失敗")
 
-                httpClient.newCall(request).execute().use { response ->
-                    if (!response.isSuccessful) {
-                        val errorBody = response.body?.string() ?: ""
-                        Log.e(TAG, "[UniVoiceBrowser] Gemini API HTTPエラー: コード=${response.code}, 内容=$errorBody")
-                        return@withContext Result.failure(Exception("HTTP ${response.code}: $errorBody"))
+                for (currentModel in candidateModels) {
+                    val targetUrl = if (customEndpoint.isNotBlank()) {
+                        customEndpoint
+                    } else {
+                        "$BASE_URL$currentModel:generateContent"
                     }
 
-                    val responseString = response.body?.string()
-                    if (responseString.isNullOrBlank()) {
-                        return@withContext Result.failure(Exception("空のレスポンスを受信しました"))
+                    val request = Request.Builder()
+                        .url(targetUrl)
+                        .addHeader("x-goog-api-key", apiKey)
+                        .addHeader("Content-Type", "application/json")
+                        .post(jsonBody.toRequestBody("application/json; charset=utf-8".toMediaType()))
+                        .build()
+
+                    try {
+                        val result = httpClient.newCall(request).execute().use { response ->
+                            if (!response.isSuccessful) {
+                                val errorBody = response.body?.string() ?: ""
+                                Log.w(TAG, "[UniVoiceBrowser] Gemini API HTTPエラー ($currentModel): コード=${response.code}, 内容=$errorBody")
+                                lastError = Exception("HTTP ${response.code}: $errorBody")
+                                return@use null
+                            }
+
+                            val responseString = response.body?.string()
+                            if (responseString.isNullOrBlank()) {
+                                lastError = Exception("空のレスポンスを受信しました")
+                                return@use null
+                            }
+
+                            val resultDto = gson.fromJson(responseString, GeminiGenerateContentResponse::class.java)
+                            val translatedText = resultDto.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text?.trim()
+
+                            if (translatedText.isNullOrBlank()) {
+                                Log.w(TAG, "[UniVoiceBrowser] Gemini APIから有効な翻訳テキストが取得できませんでした: $responseString")
+                                lastError = Exception("有効な翻訳テキストが存在しません")
+                                return@use null
+                            }
+
+                            Log.d(TAG, "[UniVoiceBrowser] Gemini翻訳完了 ($currentModel): [$text] -> [$translatedText]")
+                            translatedText
+                        }
+
+                        if (result != null) {
+                            return@withContext Result.success(result)
+                        }
+                    } catch (e: Exception) {
+                        lastError = e
+                        Log.w(TAG, "[UniVoiceBrowser] Gemini API 試行例外 ($currentModel): ${e.message}")
                     }
-
-                    val resultDto = gson.fromJson(responseString, GeminiGenerateContentResponse::class.java)
-                    val translatedText = resultDto.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text?.trim()
-
-                    if (translatedText.isNullOrBlank()) {
-                        Log.w(TAG, "[UniVoiceBrowser] Gemini APIから有効な翻訳テキストが取得できませんでした: $responseString")
-                        return@withContext Result.failure(Exception("有効な翻訳テキストが存在しません"))
-                    }
-
-                    Log.d(TAG, "[UniVoiceBrowser] Gemini翻訳完了: [$text] -> [$translatedText]")
-                    Result.success(translatedText)
                 }
+
+                Result.failure(lastError)
             } catch (e: Exception) {
                 Log.e(TAG, "[UniVoiceBrowser] Gemini API 呼び出し例外: ${e.message}", e)
                 Result.failure(e)

@@ -689,6 +689,7 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
         val pipeline = com.univoice.browser.batch.BatchDownloadPipeline(
             context = this,
             geminiApiKey = settings.geminiApiKey,
+            geminiModelName = settings.geminiModelName,
             batchApproach = settings.batchApproach
         )
         batchPipeline = pipeline
