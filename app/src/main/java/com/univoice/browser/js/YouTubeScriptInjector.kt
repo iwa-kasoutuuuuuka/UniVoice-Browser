@@ -87,38 +87,47 @@ object YouTubeScriptInjector {
 
             function enterVideoFullscreen() {
                 if (isEnteringFullscreen) return true;
-                // video単体ではなく、YouTubeプレイヤー全体（#movie_player）を最優先で全画面化
-                // これにより全画面時もYouTubeコントロールバー、CC字幕ボタン、字幕レンダラーが正常に保持される
+                const video = document.querySelector('video');
                 const playerContainer = document.querySelector('#movie_player, .html5-video-player, ytm-mobile-player-component') || 
                                         document.querySelector('.player-container') || 
-                                        document.querySelector('video');
-                if (!playerContainer) {
+                                        video;
+                if (!playerContainer && !video) {
                     log("全画面化対象のプレイヤー要素が見つかりません");
                     return false;
                 }
-                log("YouTubeプレイヤー全体の全画面表示（最大化）を実行します: " + playerContainer.tagName + "#" + playerContainer.id);
+                log("YouTubeプレイヤー全体の全画面表示（最大化）を実行します");
                 isEnteringFullscreen = true;
                 try {
+                    // 1. video.webkitEnterFullscreen (Android WebView / WebKit 最優先)
+                    if (video && typeof video.webkitEnterFullscreen === 'function') {
+                        try {
+                            video.webkitEnterFullscreen();
+                            log("video.webkitEnterFullscreen() 実行成功");
+                            return true;
+                        } catch(e) {
+                            log("video.webkitEnterFullscreen() 例外: " + e.message);
+                        }
+                    }
+
+                    // 2. nativeRequestFullscreen
                     if (nativeRequestFullscreen) {
                         try {
-                            const res = nativeRequestFullscreen.call(playerContainer);
+                            const target = playerContainer || video;
+                            const res = nativeRequestFullscreen.call(target);
                             if (res && typeof res.then === 'function') {
                                 res.catch(function(e) {
                                     log("nativeRequestFullscreen rejected: " + e.message);
-                                    // フォールバック: playerContainerが拒否された場合はvideo単体で再試行
-                                    const video = document.querySelector('video');
-                                    if (video && video !== playerContainer) {
+                                    if (video && video !== target) {
                                         nativeRequestFullscreen.call(video);
                                     }
                                 });
                             }
-                            log("nativeRequestFullscreen.call(playerContainer) 実行成功");
+                            log("nativeRequestFullscreen 実行成功");
                             return true;
                         } catch(e) {
-                            log("nativeRequestFullscreen.call(playerContainer) 例外: " + e.message);
-                            const video = document.querySelector('video');
+                            log("nativeRequestFullscreen 例外: " + e.message);
                             if (video && video !== playerContainer) {
-                                nativeRequestFullscreen.call(video);
+                                try { nativeRequestFullscreen.call(video); } catch(_ex) {}
                             }
                         }
                     }

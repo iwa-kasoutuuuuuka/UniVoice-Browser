@@ -612,11 +612,11 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
         navLayoutParams.height = if (isLandscape) (44 * density).toInt() else (56 * density).toInt()
         binding.layoutNavBar.layoutParams = navLayoutParams
 
-        // 横画面時はフローティング字幕オーバーレイの余白を縮小
+        // 横画面（フルスクリーン含む）時はフローティング字幕オーバーレイの余白を調整し、下部のシークバー/コントロール領域を遮らないようにする
         val cardLayoutParams = binding.cardSubtitleOverlay.layoutParams as androidx.constraintlayout.widget.ConstraintLayout.LayoutParams
-        cardLayoutParams.bottomMargin = if (isLandscape) (8 * density).toInt() else (24 * density).toInt()
-        cardLayoutParams.marginStart = if (isLandscape) (32 * density).toInt() else (16 * density).toInt()
-        cardLayoutParams.marginEnd = if (isLandscape) (32 * density).toInt() else (16 * density).toInt()
+        cardLayoutParams.bottomMargin = if (isLandscape) (48 * density).toInt() else (24 * density).toInt()
+        cardLayoutParams.marginStart = if (isLandscape) (64 * density).toInt() else (16 * density).toInt()
+        cardLayoutParams.marginEnd = if (isLandscape) (64 * density).toInt() else (16 * density).toInt()
         binding.cardSubtitleOverlay.layoutParams = cardLayoutParams
 
         // 画面回転時はドラッグによるオフセットをリセット
@@ -652,7 +652,15 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
                 )
             )
             visibility = View.VISIBLE
+            isFocusable = true
+            isFocusableInTouchMode = true
         }
+
+        // Chromiumの動画コンテナ/SurfaceViewがタップやジェスチャーを拾えるようにフォーカスを付与
+        view.isFocusable = true
+        view.isFocusableInTouchMode = true
+        view.isClickable = true
+        view.requestFocus()
 
         binding.cardSubtitleOverlay.translationX = 0f
         binding.cardSubtitleOverlay.translationY = 0f
