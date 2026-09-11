@@ -71,37 +71,20 @@ class UniVoiceSettingsActivity : AppCompatActivity() {
      * 視聴スタイル（リアルタイム vs バッチ翻訳）リスナー
      */
     private fun setupExecutionStyleListeners() {
-        binding.rgExecutionStyle.setOnCheckedChangeListener { _, checkedId ->
-            when (checkedId) {
-                R.id.rbStyleStreaming -> {
-                    binding.layoutBatchDetails.visibility = View.GONE
-                }
-                R.id.rbStyleBatch -> {
-                    binding.layoutBatchDetails.visibility = View.VISIBLE
-                }
-            }
+        binding.rgExecutionStyle.setOnCheckedChangeListener { _, _ ->
+            updateVisibleSections()
         }
     }
 
     /**
-     * 4つのモード切り替えイベントと手動詳細エリアの動的表示制御
+     * 動作モード切り替えイベントと手動詳細エリア等の動的表示制御
      */
     private fun setupModeSelectionListeners() {
-        binding.rgProcessingModes.setOnCheckedChangeListener { _, checkedId ->
-            when (checkedId) {
-                R.id.rbPureLocal -> {
-                    binding.layoutManualSettings.visibility = View.GONE
-                    binding.cardGeminiApiKey.visibility = View.GONE
-                }
-                R.id.rbPureApi, R.id.rbHybridOptimal -> {
-                    binding.layoutManualSettings.visibility = View.GONE
-                    binding.cardGeminiApiKey.visibility = View.VISIBLE
-                }
-                R.id.rbManual -> {
-                    binding.layoutManualSettings.visibility = View.VISIBLE
-                    binding.cardGeminiApiKey.visibility = View.VISIBLE
-                }
-            }
+        binding.rgProcessingModes.setOnCheckedChangeListener { _, _ ->
+            updateVisibleSections()
+        }
+        binding.rgBatchApproaches.setOnCheckedChangeListener { _, _ ->
+            updateVisibleSections()
         }
 
         binding.sliderTtsSpeed.addOnChangeListener { _, value, _ ->
@@ -121,6 +104,40 @@ class UniVoiceSettingsActivity : AppCompatActivity() {
                     binding.btnTestSpeechSpeed.isEnabled = true
                 }
             }
+        }
+    }
+
+    /**
+     * 選択中の視聴スタイルと処理モードに応じて、関連する設定項目のみを表示
+     */
+    private fun updateVisibleSections() {
+        val isBatch = binding.rbStyleBatch.isChecked
+
+        if (isBatch) {
+            // バッチ翻訳選択時: ストリーミング設定群を非表示、バッチ設定群を表示
+            binding.layoutStreamingContainer.visibility = View.GONE
+            binding.layoutBatchContainer.visibility = View.VISIBLE
+            binding.layoutBackgroundPlaybackOption.visibility = View.GONE
+            binding.dividerBackgroundPlayback.visibility = View.GONE
+
+            // アプローチB (クラウドAI) または アプローチC (ハイブリッド) の場合にGemini APIキーを表示
+            val isApproachA = binding.rbApproachA.isChecked
+            binding.layoutGeminiApiKeySection.visibility = if (isApproachA) View.GONE else View.VISIBLE
+        } else {
+            // ストリーミング選択時: バッチ設定群を非表示、ストリーミング設定群を表示
+            binding.layoutStreamingContainer.visibility = View.VISIBLE
+            binding.layoutBatchContainer.visibility = View.GONE
+            binding.layoutBackgroundPlaybackOption.visibility = View.VISIBLE
+            binding.dividerBackgroundPlayback.visibility = View.VISIBLE
+
+            // モードに応じた制御 (完全ローカル、完全API、最適構成、手動)
+            val isPureLocal = binding.rbPureLocal.isChecked
+            val isManual = binding.rbManual.isChecked
+
+            binding.layoutManualSettings.visibility = if (isManual) View.VISIBLE else View.GONE
+            binding.layoutGeminiApiKeySection.visibility = if (isPureLocal) View.GONE else View.VISIBLE
+            // ローカルモデル管理は完全ローカル、または手動設定時に役立つ
+            binding.layoutLocalModelsContainer.visibility = if (isPureLocal || isManual) View.VISIBLE else View.GONE
         }
     }
 
@@ -226,10 +243,8 @@ class UniVoiceSettingsActivity : AppCompatActivity() {
         // 視聴スタイル
         if (settings.executionStyle == ExecutionStyle.BATCH_DOWNLOAD) {
             binding.rbStyleBatch.isChecked = true
-            binding.layoutBatchDetails.visibility = View.VISIBLE
         } else {
             binding.rbStyleStreaming.isChecked = true
-            binding.layoutBatchDetails.visibility = View.GONE
         }
 
         // バッチアプローチ
@@ -241,27 +256,14 @@ class UniVoiceSettingsActivity : AppCompatActivity() {
 
         // 動作モード
         when (settings.currentMode) {
-            ProcessingMode.PURE_LOCAL -> {
-                binding.rbPureLocal.isChecked = true
-                binding.cardGeminiApiKey.visibility = View.GONE
-                binding.layoutManualSettings.visibility = View.GONE
-            }
-            ProcessingMode.PURE_API -> {
-                binding.rbPureApi.isChecked = true
-                binding.cardGeminiApiKey.visibility = View.VISIBLE
-                binding.layoutManualSettings.visibility = View.GONE
-            }
-            ProcessingMode.HYBRID_OPTIMAL -> {
-                binding.rbHybridOptimal.isChecked = true
-                binding.cardGeminiApiKey.visibility = View.VISIBLE
-                binding.layoutManualSettings.visibility = View.GONE
-            }
-            ProcessingMode.MANUAL -> {
-                binding.rbManual.isChecked = true
-                binding.cardGeminiApiKey.visibility = View.VISIBLE
-                binding.layoutManualSettings.visibility = View.VISIBLE
-            }
+            ProcessingMode.PURE_LOCAL -> binding.rbPureLocal.isChecked = true
+            ProcessingMode.PURE_API -> binding.rbPureApi.isChecked = true
+            ProcessingMode.HYBRID_OPTIMAL -> binding.rbHybridOptimal.isChecked = true
+            ProcessingMode.MANUAL -> binding.rbManual.isChecked = true
         }
+
+        // 表示状態を一括更新
+        updateVisibleSections()
 
         // 手動設定項目
         val transIndex = TranslationEngineType.values().indexOf(settings.manualTranslationEngine)
