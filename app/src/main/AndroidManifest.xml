@@ -31,6 +31,7 @@
         android:hardwareAccelerated="true"
         android:largeHeap="true"
         android:networkSecurityConfig="@xml/network_security_config"
+        android:enableOnBackInvokedCallback="true"
         tools:targetApi="34">
 
         <!-- メインブラウザ画面 (PiP & ハードウェアアクセラレーション対応) -->
@@ -57,7 +58,7 @@
         <!-- 設定画面（4つの動作モード切り替え） -->
         <activity
             android:name=".ui.UniVoiceSettingsActivity"
-            android:exported="true"
+            android:exported="false"
             android:label="@string/title_settings"
             android:parentActivityName=".ui.UniVoiceBrowserActivity">
             <meta-data
@@ -68,7 +69,7 @@
         <!-- 日英対訳スクリプト履歴画面 -->
         <activity
             android:name=".ui.UniVoiceTranscriptActivity"
-            android:exported="true"
+            android:exported="false"
             android:label="日英対訳スクリプト履歴"
             android:parentActivityName=".ui.UniVoiceBrowserActivity">
             <meta-data

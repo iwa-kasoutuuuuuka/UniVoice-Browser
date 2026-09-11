@@ -31,21 +31,29 @@ class UniVoicePlaybackService : Service() {
         const val ACTION_STOP = "com.univoice.browser.action.STOP_PLAYBACK_SERVICE"
 
         fun start(context: Context) {
-            val intent = Intent(context, UniVoicePlaybackService::class.java).apply {
-                action = ACTION_START
-            }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(intent)
-            } else {
-                context.startService(intent)
+            try {
+                val intent = Intent(context, UniVoicePlaybackService::class.java).apply {
+                    action = ACTION_START
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    context.startForegroundService(intent)
+                } else {
+                    context.startService(intent)
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "[UniVoiceBrowser] サービス開始要求例外 (バックグラウンド起動制限等): ${e.message}")
             }
         }
 
         fun stop(context: Context) {
-            val intent = Intent(context, UniVoicePlaybackService::class.java).apply {
-                action = ACTION_STOP
+            try {
+                val intent = Intent(context, UniVoicePlaybackService::class.java).apply {
+                    action = ACTION_STOP
+                }
+                context.startService(intent)
+            } catch (e: Exception) {
+                Log.w(TAG, "[UniVoiceBrowser] サービス停止要求例外: ${e.message}")
             }
-            context.stopService(intent)
         }
     }
 
@@ -65,11 +73,9 @@ class UniVoicePlaybackService : Service() {
     override fun onBind(intent: Intent?): IBinder = binder
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == ACTION_STOP) {
-            stopForegroundService()
-            return START_NOT_STICKY
-        }
-
+        // OS契約保護: startForegroundService() が呼ばれた場合、システムは startForeground() の即座の呼び出しを厳格に要求する。
+        // ACTION_STOP やエラー時であっても、必ず一度 startForeground() を通過させてから終了することで
+        // ForegroundServiceDidNotStartInTimeException によるアプリ致命的クラッシュを 100% 防止する。
         val notification = buildNotification("YouTube日本語音声をバックグラウンド再生中")
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -81,12 +87,17 @@ class UniVoicePlaybackService : Service() {
             } else {
                 startForeground(NOTIFICATION_ID, notification)
             }
-            Log.i(TAG, "[UniVoiceBrowser] バックグラウンド再生フォアグラウンドサービスを開始しました")
         } catch (e: Exception) {
-            Log.e(TAG, "[UniVoiceBrowser] startForegroundエラー: ${e.message}", e)
+            Log.e(TAG, "[UniVoiceBrowser] startForeground初回呼出エラー: ${e.message}", e)
         }
 
-        return START_STICKY
+        if (intent?.action == ACTION_STOP) {
+            stopForegroundService()
+            return START_NOT_STICKY
+        }
+
+        Log.i(TAG, "[UniVoiceBrowser] バックグラウンド再生フォアグラウンドサービスを正常稼働開始しました")
+        return START_NOT_STICKY
     }
 
     private fun acquireWakeLock() {

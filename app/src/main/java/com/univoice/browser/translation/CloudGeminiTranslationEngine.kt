@@ -81,15 +81,16 @@ class CloudGeminiTranslationEngine(
 
                 val jsonBody = gson.toJson(requestDto)
                 val targetUrl = if (customEndpoint.isNotBlank()) {
-                    "$customEndpoint?key=$apiKey"
+                    customEndpoint
                 } else {
-                    "$BASE_URL$modelName:generateContent?key=$apiKey"
+                    "$BASE_URL$modelName:generateContent"
                 }
 
                 val request = Request.Builder()
                     .url(targetUrl)
-                    .post(jsonBody.toRequestBody("application/json; charset=utf-8".toMediaType()))
+                    .addHeader("x-goog-api-key", apiKey)
                     .addHeader("Content-Type", "application/json")
+                    .post(jsonBody.toRequestBody("application/json; charset=utf-8".toMediaType()))
                     .build()
 
                 httpClient.newCall(request).execute().use { response ->

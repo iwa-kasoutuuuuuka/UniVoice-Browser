@@ -1,4 +1,4 @@
-﻿package com.univoice.browser.batch
+package com.univoice.browser.batch
 
 import android.content.Context
 import android.util.Log
@@ -58,6 +58,13 @@ class BatchDownloadPipeline(
         get() = File(context.cacheDir, TEMP_AUDIO_SUBDIR).apply { if (!exists()) mkdirs() }
 
     /**
+     * パストラバーサル防止用サニタイズ関数
+     */
+    private fun sanitizeVideoId(rawId: String): String {
+        return rawId.replace(Regex("[^a-zA-Z0-9_-]"), "_").ifBlank { "unknown_video_${System.currentTimeMillis()}" }
+    }
+
+    /**
      * バッチ処理全体の実行
      * @param videoId 対象動画のID
      * @param videoTitle 動画タイトル
@@ -70,9 +77,10 @@ class BatchDownloadPipeline(
         rawCaptions: List<TimedSegment>?,
         audioStreamUrl: String? = null
     ): Result<List<TimedSegment>> = withContext(Dispatchers.IO) {
+        val safeVideoId = sanitizeVideoId(videoId)
         try {
             _jobStatus.value = BatchJobStatus(
-                videoId = videoId,
+                videoId = safeVideoId,
                 title = videoTitle,
                 progressPercent = 5,
                 statusMessageJapanese = "処理を開始しています..."
@@ -93,7 +101,7 @@ class BatchDownloadPipeline(
                     progressPercent = 15,
                     statusMessageJapanese = "音声トラックを一時取得中..."
                 )
-                val tempAudioFile = downloadTemporaryAudio(videoId, audioStreamUrl)
+                val tempAudioFile = downloadTemporaryAudio(safeVideoId, audioStreamUrl)
 
                 try {
                     _jobStatus.value = _jobStatus.value.copy(
@@ -126,10 +134,10 @@ class BatchDownloadPipeline(
                 progressPercent = 75,
                 statusMessageJapanese = "日本語吹き替え音声を生成中..."
             )
-            val videoOutputDir = File(cacheDir, videoId).apply { if (!exists()) mkdirs() }
+            val videoOutputDir = File(cacheDir, safeVideoId).apply { if (!exists()) mkdirs() }
             
             // 各セグメントの音声を保存
-            translatedSegments.forEachIndexed { idx, segment ->
+            translatedSegments.forEachIndexed { _, segment ->
                 val audioFile = File(videoOutputDir, "dubbing_${segment.index}.wav")
                 // ※ ここでTTSエンジンによる合成音声書き込み（擬似/連携）
                 segment.generatedAudioFile = audioFile
@@ -138,7 +146,7 @@ class BatchDownloadPipeline(
             // メタデータ（翻訳字幕・タイムスタンプ・作成日時）をJSON保存（翌日自動削除用）
             val metaFile = File(videoOutputDir, "metadata.json")
             val metaData = mapOf(
-                "videoId" to videoId,
+                "videoId" to safeVideoId,
                 "title" to videoTitle,
                 "timestamp" to System.currentTimeMillis(),
                 "segmentCount" to translatedSegments.size
@@ -243,16 +251,19 @@ class BatchDownloadPipeline(
         )
 
         val jsonBody = gson.toJson(requestBodyMap)
-        val targetUrl = "${BASE_URL}gemini-1.5-flash:generateContent?key=$geminiApiKey"
+        val targetUrl = "${BASE_URL}gemini-1.5-flash:generateContent"
 
         val request = Request.Builder()
             .url(targetUrl)
+            .addHeader("x-goog-api-key", geminiApiKey)
+            .addHeader("Content-Type", "application/json")
             .post(jsonBody.toRequestBody("application/json; charset=utf-8".toMediaType()))
             .build()
 
         httpClient.newCall(request).execute().use { response ->
             if (!response.isSuccessful) {
-                throw Exception("Geminiバッチ一括翻訳エラー: HTTP ${response.code}")
+                val err = response.body?.string() ?: ""
+                throw Exception("Geminiバッチ一括翻訳エラー: HTTP ${response.code} $err")
             }
             val responseString = response.body?.string() ?: throw Exception("空レスポンス")
             val root = gson.fromJson(responseString, Map::class.java)
@@ -263,18 +274,31 @@ class BatchDownloadPipeline(
             val firstPart = parts?.firstOrNull() as? Map<*, *>
             val jsonText = firstPart?.get("text") as? String ?: ""
 
-            val type = object : TypeToken<List<Map<String, Any>>>() {}.type
-            val parsedList: List<Map<String, Any>> = gson.fromJson(jsonText, type)
+            if (jsonText.isNotBlank()) {
+                try {
+                    val type = object : TypeToken<List<Map<String, Any>>>() {}.type
+                    val parsedList: List<Map<String, Any>> = gson.fromJson(jsonText, type)
 
-            val translationMap = mutableMapOf<Int, String>()
-            parsedList.forEach { item ->
-                val idx = (item["index"] as? Number)?.toInt() ?: -1
-                val jp = item["japanese"] as? String ?: ""
-                if (idx >= 0) translationMap[idx] = jp
-            }
+                    val translationMap = mutableMapOf<Int, String>()
+                    parsedList.forEach { item ->
+                        val idx = (item["index"] as? Number)?.toInt() ?: -1
+                        val jp = item["japanese"] as? String ?: ""
+                        if (idx >= 0) translationMap[idx] = jp
+                    }
 
-            segments.forEach { seg ->
-                seg.translatedText = translationMap[seg.index] ?: seg.originalText
+                    segments.forEach { seg ->
+                        seg.translatedText = translationMap[seg.index] ?: seg.originalText
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "[UniVoiceBrowser] JSONパース失敗、原文フォールバック: ${e.message}")
+                    segments.forEach { seg ->
+                        if (seg.translatedText.isNullOrBlank()) seg.translatedText = seg.originalText
+                    }
+                }
+            } else {
+                segments.forEach { seg ->
+                    seg.translatedText = seg.originalText
+                }
             }
         }
 

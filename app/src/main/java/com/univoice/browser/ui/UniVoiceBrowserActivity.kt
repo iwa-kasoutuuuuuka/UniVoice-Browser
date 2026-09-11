@@ -81,10 +81,29 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
         setupWebView()
         applyOrientationLayout(resources.configuration.orientation)
         observePipelineStates()
+        setupBackPressHandler()
 
         // 初期ページ読み込み (日本語クエリ・ヘッダー付き)
         val initialUrl = intent?.dataString ?: DEFAULT_HOMEPAGE
         loadInputUrl(initialUrl)
+    }
+
+    private fun setupBackPressHandler() {
+        onBackPressedDispatcher.addCallback(this, object : androidx.activity.OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                if (customView != null) {
+                    hideCustomView()
+                    return
+                }
+                if (binding.wvBrowser.canGoBack()) {
+                    binding.wvBrowser.goBack()
+                } else {
+                    isEnabled = false
+                    onBackPressedDispatcher.onBackPressed()
+                    isEnabled = true
+                }
+            }
+        })
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -389,7 +408,7 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
             onSubtitleReceivedCallback = { cue ->
                 pipelineManager.onSubtitleReceived(cue)
             },
-            onVideoStateChangedCallback = { isPlaying, currentTimeMs ->
+            onVideoStateChangedCallback = { isPlaying, _ ->
                 runOnUiThread {
                     binding.btnPlayPause.setImageResource(
                         if (isPlaying) R.drawable.ic_pause else R.drawable.ic_play_arrow
@@ -479,7 +498,8 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
             }
         }
 
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.KITKAT) {
+        val isDebuggable = (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
+        if (isDebuggable && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.KITKAT) {
             WebView.setWebContentsDebuggingEnabled(true)
         }
 
@@ -730,17 +750,6 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
         }
     }
 
-    override fun onBackPressed() {
-        if (customView != null) {
-            hideCustomView()
-            return
-        }
-        if (binding.wvBrowser.canGoBack()) {
-            binding.wvBrowser.goBack()
-        } else {
-            super.onBackPressed()
-        }
-    }
 
     private fun updateBackgroundAudioButton(enabled: Boolean) {
         runOnUiThread {
@@ -750,13 +759,23 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
 
     override fun onPause() {
         super.onPause()
+
+        // PiPモード（小画面継続表示）またはActivity破棄中の場合はサービス起動をスキップ
+        val isPip = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
+            isInPictureInPictureMode
+        } else {
+            false
+        }
+        if (isPip || isFinishing) {
+            return
+        }
+
         val isBackgroundEnabled = configManager.currentSettings.backgroundPlaybackEnabled
         val isYouTube = YouTubeScriptInjector.isYouTubeUrl(binding.wvBrowser.url)
 
         if (isBackgroundEnabled && isYouTube) {
             Log.i(TAG, "[UniVoiceBrowser] バックグラウンド再生が有効なため、WebViewと音声パイプラインを停止させず維持します")
             com.univoice.browser.service.UniVoicePlaybackService.start(this)
-            // WebViewを停止(onPause)させずにバックグラウンドでのJS・タイマー・字幕処理を継続させる
         } else {
             binding.wvBrowser.onPause()
             pipelineManager.stopAudio()

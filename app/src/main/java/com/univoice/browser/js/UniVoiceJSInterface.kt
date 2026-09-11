@@ -102,10 +102,13 @@ class UniVoiceJSInterface(
     }
 
     /**
-     * JS 内からのデバッグログ受信用
+     * JS 内からのデバッグログ受信用 (YouTubeオリジンからのみ受付 & 文字数制限)
      */
     @JavascriptInterface
     fun log(message: String?) {
-        Log.d(TAG, "[UniVoiceBrowser-JS] $message")
+        if (!isOriginAuthorized()) return
+        if (message.isNullOrBlank()) return
+        val sanitized = message.take(256).trim()
+        Log.d(TAG, "[UniVoiceBrowser-JS] $sanitized")
     }
 }
