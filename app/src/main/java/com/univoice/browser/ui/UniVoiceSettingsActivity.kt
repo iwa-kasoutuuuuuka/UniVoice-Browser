@@ -316,7 +316,13 @@ class UniVoiceSettingsActivity : AppCompatActivity() {
             binding.spinnerTtsEngine.selectedItemPosition
         ) { TtsEngineType.LOCAL_VOICEVOX_ONNX }
 
-        val apiKey = binding.etGeminiApiKey.text?.toString()?.trim() ?: ""
+        val rawApiKey = binding.etGeminiApiKey.text?.toString()?.trim() ?: ""
+        // アプローチA（完全ローカル）選択時やAPI不要モードではAPIキーが不要なためサニタイズ
+        val apiKey = if (selectedExecutionStyle == ExecutionStyle.BATCH_DOWNLOAD && selectedBatchApproach == BatchApproach.APPROACH_A_LOCAL) {
+            ""
+        } else {
+            rawApiKey
+        }
         val hwAccel = binding.switchHardwareAccel.isChecked
         val audioSuppression = binding.switchAudioSuppression.isChecked
         val backgroundPlayback = binding.switchBackgroundPlayback.isChecked

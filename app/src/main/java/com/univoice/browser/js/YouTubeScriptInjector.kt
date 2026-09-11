@@ -15,6 +15,37 @@ object YouTubeScriptInjector {
     }
 
     /**
+     * 再生対象の動画ページ（Watch/Shorts/Embed）判定
+     */
+    fun isVideoWatchUrl(url: String?): Boolean {
+        if (!isYouTubeUrl(url)) return false
+        val lower = url!!.lowercase()
+        return lower.contains("/watch") || lower.contains("/shorts/") || lower.contains("/embed/") || lower.contains("youtu.be/")
+    }
+
+    /**
+     * 動画IDの抽出
+     */
+    fun extractVideoId(url: String?): String {
+        if (url.isNullOrBlank()) return "unknown_video"
+        try {
+            val uri = android.net.Uri.parse(url)
+            val vParam = uri.getQueryParameter("v")
+            if (!vParam.isNullOrBlank()) return vParam
+
+            if (url.contains("/shorts/")) {
+                val after = url.substringAfter("/shorts/")
+                return after.substringBefore("?").substringBefore("/")
+            }
+            if (url.contains("youtu.be/")) {
+                val after = url.substringAfter("youtu.be/")
+                return after.substringBefore("?").substringBefore("/")
+            }
+        } catch (_: Exception) {}
+        return "video_${System.currentTimeMillis()}"
+    }
+
+    /**
      * 音声抑制（ミュート強制）＆字幕インターセプト＆広告ブロックスクリプト本体を生成
      * @param enableAudioSuppression 元音声をミュートするかどうか
      * @param enableAdBlock 広告ブロック・動画広告自動スキップを有効にするかどうか
@@ -270,8 +301,8 @@ object YouTubeScriptInjector {
                     if (targetTrack.baseUrl === lastFetchedTrackBaseUrl) return;
 
                     lastFetchedTrackBaseUrl = targetTrack.baseUrl;
-                    prefetchRunning = true;
-                    log("YouTube 字幕トラック (timedtext) 先読みフェッチを開始: " + targetTrack.name?.simpleText || targetTrack.languageCode);
+                    const trackName = (targetTrack.name && targetTrack.name.simpleText) ? targetTrack.name.simpleText : (targetTrack.languageCode || "");
+                    log("YouTube 字幕トラック (timedtext) 先読みフェッチを開始: " + trackName);
 
                     fetch(targetTrack.baseUrl + '&fmt=json3')
                         .then(function(res) { return res.json(); })

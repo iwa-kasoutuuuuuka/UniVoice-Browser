@@ -80,10 +80,20 @@ class UniVoicePipelineManager(
     private val fallbackLocalTranslation = com.univoice.browser.translation.LocalAiEdgeTranslationEngine(context)
     private val freeWebTranslation = com.univoice.browser.translation.FreeWebTranslationEngine()
 
-    // スライディングウィンドウ・キャッシュ (12GB+ RAM最適化)
+    // スライディングウィンドウ・キャッシュ (12GB+ RAM最適化, LRU自動破棄付き)
     private val slidingWindowQueue = ConcurrentLinkedQueue<UniVoiceSubtitleCue>()
+    private val MAX_TRANSLATION_CACHE_SIZE = 1000
     private val translationCache = ConcurrentHashMap<String, String>() // cleanText -> translatedText
     private val cueChannel = Channel<UniVoiceSubtitleCue>(Channel.BUFFERED)
+
+    private fun putTranslationCache(key: String, value: String) {
+        if (translationCache.size >= MAX_TRANSLATION_CACHE_SIZE) {
+            // 最古のエントリを間引いてサイズを一定に保持
+            val keysToRemove = translationCache.keys().toList().take(200)
+            keysToRemove.forEach { translationCache.remove(it) }
+        }
+        translationCache[key] = value
+    }
 
     private val thermalManager = com.univoice.browser.hardware.UniVoiceThermalManager(context)
     private val transcriptRepo = com.univoice.browser.transcript.TranscriptRepository.getInstance(context)
@@ -221,9 +231,11 @@ class UniVoicePipelineManager(
 
     /**
      * 字幕(CC)の有効化状態変更の通知
+     * ※ バッチダウンロード翻訳モード時は音声からAIが直接文字起こしするため、警告を出さない
      */
     fun onCaptionStateChanged(isEnabled: Boolean) {
-        if (!isEnabled) {
+        val isBatchMode = configManager.currentSettings.executionStyle == com.univoice.browser.model.ExecutionStyle.BATCH_DOWNLOAD
+        if (!isEnabled && !isBatchMode) {
             _captionGuidanceMessage.value = "⚠️ 字幕(CC)がオフです。動画をタップして右上の[CC]を押してください"
         } else {
             _captionGuidanceMessage.value = null
@@ -271,7 +283,7 @@ class UniVoicePipelineManager(
             }
 
             if (translated.isNotBlank()) {
-                translationCache[cleanText] = translated
+                putTranslationCache(cleanText, translated)
             }
         } else {
             Log.d(TAG, "[UniVoiceBrowser] キャッシュまたは直接日本語ヒット: [$cleanText] -> [$translated]")
@@ -369,7 +381,7 @@ class UniVoicePipelineManager(
                 if (clean.isNotBlank() && !translationCache.containsKey(clean)) {
                     val isJp = clean.any { it.code in 0x3040..0x30FF || it.code in 0x4E00..0x9FFF }
                     if (isJp) {
-                        translationCache[clean] = clean
+                        putTranslationCache(clean, clean)
                         pending.translatedText = clean
                         _prefetchedCountFlow.value = translationCache.size
                         continue
@@ -377,7 +389,7 @@ class UniVoicePipelineManager(
                     val history = slidingWindowQueue.map { it.cleanText }
                     val trans = (translationEngine ?: freeWebTranslation).translate(clean, history).getOrNull()
                     if (!trans.isNullOrBlank()) {
-                        translationCache[clean] = trans
+                        putTranslationCache(clean, trans)
                         pending.translatedText = trans
                         _prefetchedCountFlow.value = translationCache.size
                         Log.d(TAG, "[UniVoiceBrowser] 先読みバッファ完了 (${translationCache.size}件保持): [$clean] -> [$trans]")

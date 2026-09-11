@@ -40,7 +40,9 @@ class FreeWebTranslationEngine : TranslationEngine {
     override suspend fun translate(text: String, contextHistory: List<String>): Result<String> {
         return withContext(Dispatchers.IO) {
             val clean = text.trim().trimStart('.', ',', ':', ';', '!', '?', '-', ' ').trim()
-            if (clean.isBlank()) return@withContext Result.success("")
+            if (clean.isBlank()) {
+                return@withContext Result.failure(IllegalArgumentException("字幕テキストが空または記号のみです"))
+            }
 
             // すでに日本語が含まれている場合はそのまま使用
             val containsJapanese = clean.any { it.code in 0x3040..0x30FF || it.code in 0x4E00..0x9FFF }

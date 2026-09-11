@@ -111,13 +111,20 @@ class CloudEdgeTtsEngine(
                 }
 
                 Log.d(TAG, "[UniVoiceBrowser] クラウドEdge TTSストリーミング再生開始 ($durationMs ms): $text")
-                // 発話の完了を待機（最大でも duration / speed + 400ms でタイムアウトして次の文へ安全に移行）
                 val adjustedTimeout = ((durationMs / speed.coerceAtLeast(0.5f)).toLong() + 400L).coerceIn(800L, 10000L)
-                try {
+                val completed = try {
                     kotlinx.coroutines.withTimeoutOrNull(adjustedTimeout) {
                         deferred.await()
-                    }
-                } catch (_: Exception) {}
+                        true
+                    } ?: false
+                } catch (_: Exception) {
+                    false
+                }
+
+                if (!completed) {
+                    Log.w(TAG, "[UniVoiceBrowser] クラウドEdge TTS再生がタイムアウト($adjustedTimeout ms)したため、MediaPlayerを即時解放します")
+                    stop()
+                }
 
                 Result.success(Unit)
             } catch (e: Exception) {

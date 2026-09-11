@@ -4,9 +4,15 @@ import android.content.Context
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import com.univoice.browser.model.UniVoiceSubtitleCue
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -21,6 +27,8 @@ class TranscriptRepository private constructor(context: Context) {
     private val prefs = context.applicationContext.getSharedPreferences("univoice_transcripts", Context.MODE_PRIVATE)
     private val gson = Gson()
     private val cueList = CopyOnWriteArrayList<UniVoiceSubtitleCue>()
+    private val repoScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var saveDebounceJob: Job? = null
 
     private val _cuesFlow = MutableStateFlow<List<UniVoiceSubtitleCue>>(emptyList())
     val cuesFlow: StateFlow<List<UniVoiceSubtitleCue>> = _cuesFlow.asStateFlow()
@@ -64,20 +72,37 @@ class TranscriptRepository private constructor(context: Context) {
         if (!exists) {
             cueList.add(cue)
             _cuesFlow.value = cueList.toList()
-            saveToPrefs()
+            scheduleDebouncedSave()
         }
     }
 
     fun clearAll() {
         cueList.clear()
         _cuesFlow.value = emptyList()
+        saveDebounceJob?.cancel()
         prefs.edit().remove("saved_cues").apply()
+    }
+
+    /**
+     * 高頻度呼び出しによるUI遅延（Skipped frames）を防ぐため、1.5秒デバウンスでIOスレッドから非同期保存
+     */
+    private fun scheduleDebouncedSave() {
+        saveDebounceJob?.cancel()
+        saveDebounceJob = repoScope.launch {
+            delay(1500L)
+            saveToPrefs()
+        }
     }
 
     private fun saveToPrefs() {
         // 最大500件まで保持
         val toSave = cueList.takeLast(500)
-        prefs.edit().putString("saved_cues", gson.toJson(toSave)).apply()
+        try {
+            val json = gson.toJson(toSave)
+            prefs.edit().putString("saved_cues", json).apply()
+        } catch (e: Exception) {
+            // Ignore serialize errors
+        }
     }
 
     /**

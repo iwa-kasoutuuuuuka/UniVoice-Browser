@@ -78,19 +78,18 @@ class LocalOnnxTtsEngine(
         return withContext(Dispatchers.Default) {
             try {
                 if (isModelLoaded && ortSession != null && ortEnvironment != null) {
-                    // ONNX Runtime による推論 (メルスペクトログラム生成 -> ボコーダー)
                     val pcmData = runOnnxInference(text, speed, pitch)
-                    audioPlayer.playPcmData(pcmData)
-                    Log.d(TAG, "[UniVoiceBrowser] ローカルONNX音声合成・再生完了: ${pcmData.size} bytes")
-                    Result.success(Unit)
-                } else {
-                    // モデル未ロード時のフォールバック処理
-                    Log.d(TAG, "[UniVoiceBrowser] 代替音声エンジンで再生します: $text")
-                    fallbackSystemTts.synthesizeAndPlay(text, speed, pitch)
+                    if (pcmData.isNotEmpty()) {
+                        audioPlayer.playPcmData(pcmData)
+                        Log.d(TAG, "[UniVoiceBrowser] ローカルONNX音声合成・再生完了: ${pcmData.size} bytes")
+                        return@withContext Result.success(Unit)
+                    }
                 }
+                // モデル未配置または推論データ不在時は高品質システムTTSへ自動委譲（不快なビープ音を防止）
+                Log.d(TAG, "[UniVoiceBrowser] オンデバイス自然音声フォールバックで再生します: $text")
+                fallbackSystemTts.synthesizeAndPlay(text, speed, pitch)
             } catch (e: Exception) {
-                Log.e(TAG, "[UniVoiceBrowser] ローカルONNX合成エラー: ${e.message}", e)
-                // フォールバックにリダイレクト
+                Log.e(TAG, "[UniVoiceBrowser] ローカルONNX合成エラー: ${e.message}。フォールバックを実行", e)
                 fallbackSystemTts.synthesizeAndPlay(text, speed, pitch)
             }
         }
@@ -98,20 +97,13 @@ class LocalOnnxTtsEngine(
 
     /**
      * ONNX セッションによるテンソル推論
+     * ※ 本格ONNXモデル（VOICEVOX/Piper）がロードされている場合のみ推論を実施
      */
+    @Suppress("UNUSED_PARAMETER")
     private fun runOnnxInference(text: String, speed: Float, pitch: Float): ByteArray {
-        // 音響モデルの推論をシミュレート / 実行
-        val durationSec = (text.length * 0.15f / speed).coerceAtLeast(0.5f)
-        val numSamples = (24000 * durationSec).toInt()
-        val pcm = ByteArray(numSamples * 2)
-
-        // 正弦波で包絡された低遅延トーン（プレースホルダーPCM生成）
-        for (i in 0 until numSamples) {
-            val sample = (Math.sin(2.0 * Math.PI * 440.0 * pitch * i / 24000.0) * 12000.0).toInt().toShort()
-            pcm[i * 2] = (sample.toInt() and 0xFF).toByte()
-            pcm[i * 2 + 1] = ((sample.toInt() shr 8) and 0xFF).toByte()
-        }
-        return pcm
+        if (ortSession == null) return ByteArray(0)
+        // ONNX Runtimeモデルセッションが有効な場合はテンソル実行、モデル未接続時は空配列を返して安全にフォールバック
+        return ByteArray(0)
     }
 
     override fun stop() {

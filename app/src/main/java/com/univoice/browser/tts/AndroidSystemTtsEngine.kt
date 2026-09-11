@@ -8,6 +8,8 @@ import android.util.Log
 import com.univoice.browser.model.TtsEngineType
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.util.Locale
 
@@ -28,6 +30,7 @@ class AndroidSystemTtsEngine(private val context: Context) : TtsEngine {
     private var initDeferred: CompletableDeferred<Boolean>? = null
 
     private var currentDeferred: CompletableDeferred<Unit>? = null
+    private val speakMutex = kotlinx.coroutines.sync.Mutex()
 
     override suspend fun initialize(): Boolean {
         if (isInitialized && tts != null) return true
@@ -106,17 +109,20 @@ class AndroidSystemTtsEngine(private val context: Context) : TtsEngine {
                 val currentVol = audioManager?.getStreamVolume(android.media.AudioManager.STREAM_MUSIC) ?: -1
                 Log.d(TAG, "[UniVoiceBrowser] 標準TTS発話開始 (速度=${appliedSpeed}倍, 音量=$currentVol): $text")
 
-                val playDeferred = CompletableDeferred<Unit>()
-                currentDeferred = playDeferred
+                speakMutex.withLock {
+                    currentDeferred?.complete(Unit)
+                    val playDeferred = CompletableDeferred<Unit>()
+                    currentDeferred = playDeferred
 
-                tts?.speak(text, TextToSpeech.QUEUE_FLUSH, params, utteranceId)
+                    tts?.speak(text, TextToSpeech.QUEUE_FLUSH, params, utteranceId)
 
-                val timeoutMs = ((text.length * 220L / appliedSpeed).toLong() + 1500L).coerceIn(800L, 9000L)
-                try {
-                    kotlinx.coroutines.withTimeoutOrNull(timeoutMs) {
-                        playDeferred.await()
-                    }
-                } catch (_: Exception) {}
+                    val timeoutMs = ((text.length * 220L / appliedSpeed).toLong() + 1500L).coerceIn(800L, 9000L)
+                    try {
+                        kotlinx.coroutines.withTimeoutOrNull(timeoutMs) {
+                            playDeferred.await()
+                        }
+                    } catch (_: Exception) {}
+                }
 
                 Result.success(Unit)
             } catch (e: Exception) {

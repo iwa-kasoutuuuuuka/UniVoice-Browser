@@ -40,6 +40,8 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
     private lateinit var binding: ActivityUnivoiceBrowserBinding
     private lateinit var configManager: UniVoiceConfigManager
     private lateinit var pipelineManager: UniVoicePipelineManager
+    private var batchPipeline: com.univoice.browser.batch.BatchDownloadPipeline? = null
+    private var batchJob: kotlinx.coroutines.Job? = null
 
     // フローティング字幕カード状態管理
     private var isCardMinimized: Boolean = false
@@ -99,8 +101,7 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
                     binding.wvBrowser.goBack()
                 } else {
                     isEnabled = false
-                    onBackPressedDispatcher.onBackPressed()
-                    isEnabled = true
+                    finish()
                 }
             }
         })
@@ -188,11 +189,15 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
             startActivity(Intent(this, UniVoiceSettingsActivity::class.java))
         }
 
-        // URL入力ハンドリング
-        binding.etUrl.setOnEditorActionListener { v, actionId, _ ->
-            if (actionId == EditorInfo.IME_ACTION_GO || actionId == EditorInfo.IME_ACTION_DONE) {
+        // URL入力ハンドリング (GO, DONE, SEARCH, およびEnterキー押下を全捕捉)
+        binding.etUrl.setOnEditorActionListener { v, actionId, event ->
+            val isEnterDown = event != null && event.keyCode == android.view.KeyEvent.KEYCODE_ENTER && event.action == android.view.KeyEvent.ACTION_DOWN
+            if (actionId == EditorInfo.IME_ACTION_GO || actionId == EditorInfo.IME_ACTION_DONE || actionId == EditorInfo.IME_ACTION_SEARCH || isEnterDown) {
                 val input = v.text.toString().trim()
                 loadInputUrl(input)
+                // キーボードを閉じる
+                val imm = getSystemService(INPUT_METHOD_SERVICE) as? android.view.inputmethod.InputMethodManager
+                imm?.hideSoftInputFromWindow(v.windowToken, 0)
                 true
             } else {
                 false
@@ -245,7 +250,12 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
             toggleDockPosition()
         }
 
-        // 6. 自由ドラッグ移動ハンドリング (ドラッグ領域でのみスワイプ移動)
+        // 6. ダウンロード徹底バッチ翻訳の「吹き替えを開始」ボタン
+        binding.btnStartBatchDubbing.setOnClickListener {
+            startBatchDubbingProcess()
+        }
+
+        // 7. 自由ドラッグ移動ハンドリング (ドラッグ領域でのみスワイプ移動)
         setupDraggableSubtitleCard()
     }
 
@@ -446,7 +456,10 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
 
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
-                url?.let { currentLoadedUrl = it }
+                url?.let { 
+                    currentLoadedUrl = it 
+                    updateBatchControlVisibility(it)
+                }
                 binding.progressBar.visibility = View.GONE
                 checkAndInjectYouTubeScripts(url)
             }
@@ -456,6 +469,7 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
                 url?.let {
                     currentLoadedUrl = it
                     binding.etUrl.setText(it)
+                    updateBatchControlVisibility(it)
                     checkAndInjectYouTubeScripts(it)
                 }
             }
@@ -482,8 +496,19 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
                     return true // 未知の外部アプリインテントでWebページエラーになるのを防ぐ
                 }
 
+                // tel:, mailto:, sms:, market: 等の安全な外部アプリ連携スキームを安全に委譲
+                if (url.startsWith("tel:") || url.startsWith("mailto:") || url.startsWith("sms:") || url.startsWith("market:")) {
+                    try {
+                        val externalIntent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url))
+                        view?.context?.startActivity(externalIntent)
+                    } catch (e: Exception) {
+                        Log.w(TAG, "[UniVoiceBrowser] 外部アプリ起動スキップ: ${e.message}")
+                    }
+                    return true
+                }
+
                 if (!url.startsWith("http://") && !url.startsWith("https://")) {
-                    return true // javascript:, file:, market: 等の不正・不要スキームを抑止
+                    return true // javascript:, file:, content: 等の不正・危険スキームを抑止
                 }
 
                 return false // 通常のHTTP/HTTPSはWebView内で処理
@@ -613,6 +638,97 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
                 }
             }
         }
+
+        // 視聴スタイルに応じたバッチUI更新
+        lifecycleScope.launch {
+            configManager.settingsFlow.collectLatest {
+                updateBatchControlVisibility(binding.wvBrowser.url)
+            }
+        }
+    }
+
+    /**
+     * 動画URLと設定スタイルに応じてバッチ吹き替え開始UIの表示/非表示を切り替え
+     */
+    private fun updateBatchControlVisibility(url: String?) {
+        val isBatchMode = configManager.currentSettings.executionStyle == com.univoice.browser.model.ExecutionStyle.BATCH_DOWNLOAD
+        val isVideo = YouTubeScriptInjector.isVideoWatchUrl(url)
+
+        runOnUiThread {
+            if (isBatchMode && isVideo) {
+                binding.layoutBatchControl.visibility = View.VISIBLE
+                val approachName = configManager.currentSettings.batchApproach.titleJapanese
+                binding.tvBatchDescription.text = "【$approachName】\nYouTubeの字幕有無に関係なく、AIが動画音声から文字起こし＆尺合わせ日本語吹き替えを生成します。"
+            } else {
+                binding.layoutBatchControl.visibility = View.GONE
+            }
+        }
+    }
+
+    /**
+     * 案B: ユーザーが「吹き替えを開始」ボタンをタップした時に実行されるバッチ処理
+     */
+    private fun startBatchDubbingProcess() {
+        val currentUrl = binding.wvBrowser.url
+        if (!YouTubeScriptInjector.isVideoWatchUrl(currentUrl)) {
+            android.widget.Toast.makeText(this, "動画再生ページで実行してください", android.widget.Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val videoId = YouTubeScriptInjector.extractVideoId(currentUrl)
+        val videoTitle = binding.wvBrowser.title ?: "YouTube Video ($videoId)"
+        val settings = configManager.currentSettings
+
+        binding.btnStartBatchDubbing.isEnabled = false
+        binding.btnStartBatchDubbing.text = "処理中..."
+        binding.layoutBatchProgress.visibility = View.VISIBLE
+        binding.pbBatchProgress.progress = 5
+        binding.tvBatchProgressText.text = "AI音声解析と文字起こし準備を開始..."
+
+        // バッチパイプラインの初期化
+        val pipeline = com.univoice.browser.batch.BatchDownloadPipeline(
+            context = this,
+            geminiApiKey = settings.geminiApiKey,
+            batchApproach = settings.batchApproach
+        )
+        batchPipeline = pipeline
+
+        // 進捗フローの監視
+        batchJob?.cancel()
+        batchJob = lifecycleScope.launch {
+            pipeline.jobStatus.collectLatest { status ->
+                runOnUiThread {
+                    binding.pbBatchProgress.progress = status.progressPercent
+                    binding.tvBatchProgressText.text = status.statusMessageJapanese
+
+                    if (status.isCompleted) {
+                        binding.btnStartBatchDubbing.isEnabled = true
+                        binding.btnStartBatchDubbing.text = "吹き替え完了 ✓"
+                        binding.btnStartBatchDubbing.setBackgroundColor(android.graphics.Color.parseColor("#2E7D32"))
+                        binding.tvTranslatedSubtitle.text = "✨ 高品質AI吹き替えが準備できました。動画を再生してお楽しみください！"
+                    } else if (status.errorMessage != null) {
+                        binding.btnStartBatchDubbing.isEnabled = true
+                        binding.btnStartBatchDubbing.text = "再試行"
+                        binding.tvBatchProgressText.text = "エラー: ${status.errorMessage}"
+                    }
+                }
+            }
+        }
+
+        // バックグラウンドでバッチ翻訳を実行 (字幕が存在する場合は字幕優先、ない場合は音声からASR)
+        lifecycleScope.launch {
+            val result = pipeline.executeBatchProcessing(
+                videoId = videoId,
+                videoTitle = videoTitle,
+                rawCaptions = null, // 音声から直接AI文字起こし
+                audioStreamUrl = currentUrl
+            )
+            result.onSuccess { segments ->
+                Log.i(TAG, "[UniVoiceBrowser] バッチ吹き替え生成完了: ${segments.size} セグメント")
+            }.onFailure { error ->
+                Log.e(TAG, "[UniVoiceBrowser] バッチ吹き替え生成失敗: ${error.message}", error)
+            }
+        }
     }
 
     override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
@@ -719,7 +835,12 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
         customViewCallback?.onCustomViewHidden()
         customView = null
         customViewCallback = null
-        requestedOrientation = originalOrientation
+        // 端末の現在の物理センサー・ユーザー回転設定に従って復元
+        requestedOrientation = if (originalOrientation != ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED) {
+            originalOrientation
+        } else {
+            ActivityInfo.SCREEN_ORIENTATION_USER
+        }
 
         Log.i(TAG, "[UniVoiceBrowser] YouTube動画の最大化を解除しました")
     }

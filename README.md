@@ -12,18 +12,18 @@
 [![UI Language](https://img.shields.io/badge/UI-Japanese%20Only%20%28100%25%29-red.svg)](#完全日本語ui設計)
 [![Build Status](https://img.shields.io/badge/Build-Passing-brightgreen.svg)]()
 [![Security](https://img.shields.io/badge/Security-Hardened-blue.svg)]()
-[![Release APK](https://img.shields.io/badge/APK_Download-v1.1.0_(51.8MB)-blueviolet.svg?logo=android)](release/UniVoiceBrowser-v1.1.0.apk)
+[![Release APK](https://img.shields.io/badge/APK_Download-v1.1.0_(69.9MB)-blueviolet.svg?logo=android)](release/UniVoiceBrowser-v1.1.0.apk)
 
 <p align="center">
   <a href="https://github.com/iwa-kasoutuuuuuka/UniVoice-Browser/raw/main/release/UniVoiceBrowser-v1.1.0.apk">
-    <img src="https://img.shields.io/badge/📥_今すぐダウンロード-UniVoiceBrowser--v1.1.0.apk_(51.8MB)-2ea44f?style=for-the-badge&logo=android&logoColor=white" alt="APK直接ダウンロード" />
+    <img src="https://img.shields.io/badge/📥_今すぐダウンロード-UniVoiceBrowser--v1.1.0.apk_(69.9MB)-2ea44f?style=for-the-badge&logo=android&logoColor=white" alt="APK直接ダウンロード" />
   </a>
 </p>
 
 > [!TIP]
 > **ワンタップで今すぐインストール可能**: リリース版APK（署名済み）は上記バッジまたは以下のダイレクトリンクからダウンロードして、Android端末（Android 8.0以降 / Poco F6 Pro・Galaxy・Pixel・エミュレーター等）ですぐにご利用いただけます。
 > 
-> 🔗 **ダイレクトダウンロード**: [UniVoiceBrowser-v1.1.0.apk (約51.8MB)](https://github.com/iwa-kasoutuuuuuka/UniVoice-Browser/raw/main/release/UniVoiceBrowser-v1.1.0.apk)  
+> 🔗 **ダイレクトダウンロード**: [UniVoiceBrowser-v1.1.0.apk (約69.9MB)](https://github.com/iwa-kasoutuuuuuka/UniVoice-Browser/raw/main/release/UniVoiceBrowser-v1.1.0.apk)  
 > 🔗 **リポジトリ内ファイルパス**: [`release/UniVoiceBrowser-v1.1.0.apk`](release/UniVoiceBrowser-v1.1.0.apk)
 
 **UniVoice Browser** は、YouTubeなどの動画視聴時に元の外国語（英語等）音声をHTML5レベルで完全抑制（ミュート）し、リアルタイムに字幕をキャプチャ・翻訳して、流暢な日本語音声（Text-to-Speech）をオーバーレイ再生するAndroid専用の次世代AIブラウザです。
@@ -110,9 +110,11 @@
 | 項目 | 改善・修正の詳細内容 |
 | :--- | :--- |
 | **🚀 事前ダウンロード型バッチ徹底翻訳・吹き替え機能の新設** | 従来の「リアルタイム・ストリーミング」に加え、設定画面から**「ダウンロード徹底バッチ翻訳」**を選択可能に。<br>即時再生の制約を解除し、バックグラウンドで時間をかけて最高峰のAIモデルを適用することで、圧倒的な翻訳精度と自然な吹き替えを実現。 |
+| **🎬 バッチ吹き替え開始ボタン＆独立進捗UI（案B UX採用）** | 視聴ページ（`watch?v=`）読み込み時に専用の**「🎬 AI音声吹き替え（徹底バッチ翻訳）」カード**を表示。<br>・**字幕(CC)完全不要**: YouTubeのCC字幕に依存せず、動画の音声をバックグラウンドダウンロードして高精度ASR＆一括翻訳を実行。<br>・**手動開始トリガー**: ユーザーが「吹き替えを開始」ボタンを押したタイミングで処理が走り、無駄な通信や意図しない裏処理を防止。<br>・**リアルタイム進捗バー**: 処理中はボタンがプログレスバー＆パーセント表示（`〇%`）に切り替わり、完了すると緑色の「吹き替え完了 ✓」に変化。 |
 | **🎯 3大アプローチの自由選択 (A/B/C)** | ユーザーの利用環境や好みに合わせて3種類のアプローチを切り替え可能：<br>・**アプローチA（完全端末内完結）**: Snapdragon 8 Gen 2のNPU/GPUを最大活用し、Whisper＋ローカルEdge LLM＋VOICEVOX ONNXで完全オフライン処理（通信費・API代0円）。<br>・**アプローチB（クラウドAI連携型）**: Gemini 1.5 Pro等の長大文脈モデルによる最高峰の一括翻訳＋高品質クラウドTTS吹き替え。<br>・**アプローチC（ハイブリッド型・推奨）**: YouTube既存字幕を優先抽出（無い場合のみ音声ASRへフォールバック）し、Gemini一括翻訳と組み合わせて最速・最高品質を両立。 |
 | **⚖️ 尺合わせ（2重リップシンク）機構** | 英語と日本語の音節長の違いによるズレを根本解消：<br>・**プロンプト尺制約**: 発話許容秒数（Duration）から目標文字数（秒数×6.5文字）を算出し、LLMプロンプトで時間内に自然に読み切れる話し言葉・要約での出力を強制。<br>・**波形タイムストレッチ**: `DynamicTimeStretcher.calculateWaveformStretchRatio` により、合成音声波形とタイムスロットの微小な誤差を自動補正。 |
 | **🛡️ プラットフォーム規約遵守＆翌日自動消去キャッシュ管理** | 端末ストレージの逼迫と規約リスクを徹底防止：<br>・**元音声一時ファイルの即時削除**: 音声文字起こし（ASR）が完了した直後に、一時ダウンロードされた音声ファイルを即座に自動削除。<br>・**翌日（24時間後）自動ガベージコレクション**: `CacheCleanupManager` がバックグラウンドで巡回し、視聴完了から24時間経過した合成音声・翻訳データを自動消去。<br>・**手動キャッシュ全削除ボタン**: 設定画面の「キャッシュとプライバシー管理」からワンタップで即座にストレージを解放可能。 |
+| **🐞 徹底バグハンティングによる全12件の不具合修正** | 実機・エミュレータ・コード静的解析により発見された全12件の不具合を完全修正：<br>・**BUG-01 (戻るジェスチャーで即終了)**: `OnBackPressedCallback` で `webView.canGoBack()` を最優先判定しブラウザ履歴を正常に遡れるよう改修。<br>・**BUG-02 (WAV音声合成の破損)**: `LocalOnnxTtsEngine` で16-bit PCMヘッダーを正しく付与し、空・不正WAVによる再生失敗を防止。<br>・**BUG-03 (URL入力のIME確定/キーイベント未反応)**: `OnEditorActionListener` と `ACTION_DOWN` キーイベントの双方を捕捉し、確定時に確実に遷移。<br>・**BUG-04 (字幕履歴DBの頻繁なI/O負荷)**: Coroutines の Debounce 処理を導入し、連続字幕取得時のUIカクつき・DB負荷を抑制。<br>・**BUG-05 (Edge TTS切断時のタイムアウト永久待機)**: `CountDownLatch` にタイムアウトハンドラを追加し、通信切断時のゼロ遅延自動フォールバックを保証。<br>・**BUG-06 (SystemTTSの並行発話競合)**: 再生用ミューテックスロックを導入し、複数スレッドからの同時発話による音声クラッシュを防止。<br>・**BUG-07 (キャッシュメモリ肥大化)**: パイプラインキャッシュに上限付きLRU機構を適用し、長時間視聴時のメモリリークを排除。<br>・**BUG-08 (設定値の境界値バリデーション欠落)**: 速度スライダーや各種入力値に範囲ガードを追加し、不正値による例外を防止。<br>・**BUG-09 (横画面終了時のセンサー復帰不良)**: シアター全画面解除時に `SCREEN_ORIENTATION_UNSPECIFIED` へ正常復帰するよう修正。<br>・**BUG-10 (悪意あるURLスキームの実行リスク)**: WebView遷移時に `http://` / `https://` 以外の不正スキームをブロック。<br>・**BUG-11 (ONNX TTSの音声フォールバック不備)**: ONNXエンジン推論失敗時にシステム標準TTSへ即座に退避。<br>・**BUG-12 (バッチ翻訳時の不要なCC警告表示)**: バッチモード選択時はYouTube字幕OFF警告バナーを自動非表示化。 |
 | **👆 全画面（フルスクリーン）時のタッチ・操作性完全修復** | 全画面（横画面シアターモード）時に画面をタップしてもYouTubeのシークバーや再生・一時停止等のコントロールが表示されない問題を根本解決：<br>・**CustomViewフォーカス＆タッチモード明示化**: `WebChromeClient.onShowCustomView` において、Chromiumの全画面動画ビューおよびコンテナに `isFocusableInTouchMode = true`、`isClickable = true`、`requestFocus()` を付与し、OSの入力イベントディスパッチャ（MotionEvent）を確実に受信。<br>・**横画面字幕オーバーレイマージン最適化**: 字幕カードが画面下部のシークバーやコントロールを覆い隠さないよう、下部マージン（48dp）および左右マージン（64dp）を自動確保し、タッチ操作と字幕視認性を完全両立。<br>・**HTML5全画面API連携強化**: `video.webkitEnterFullscreen()` と `#movie_player` 全画面化のフォールバックを最適化。 |
 | **📱 設定画面の動的表示切替 (Dynamic UI Visibility)** | 「リアルタイム・ストリーミング」と「ダウンロード徹底バッチ翻訳」の方式切替に応じて、下部に表示される設定セクションを動的にフィルタリング。<br>不要な設定カードを自動的に非表示化し、設定画面を直感的で迷わないシンプルなUIに刷新。 |
 | **🛡️ 包括的セキュリティ監査と堅牢化 (Security Hardening)** | ブラウザおよびAIパイプラインの安全性を徹底強化：<br>・**非公開コンポーネント保護**: `UniVoiceSettingsActivity` および `UniVoiceTranscriptActivity` を `android:exported="false"` に設定し、他アプリからの不正な設定改変・情報流出を完全遮断。<br>・**WebViewリモートデバッグ制限**: `setWebContentsDebuggingEnabled` をデバッグビルド（`FLAG_DEBUGGABLE`）のみに限定し、リリース版での外部デバッグポートを封鎖。<br>・**JSBridge 入力サニタイズ**: `UniVoiceJSInterface.log()` においてオリジン検証（`isAllowedOrigin`）および最大文字数（1,000文字）制限を適用。<br>・**ディレクトリトラバーサル防御**: バッチダウンロードの動画IDに `sanitizeVideoId` を適用し、不正な相対パス（`../`）を完全排除。<br>・**APIキーのヘッダー認証化**: Gemini API 呼び出しを URL クエリパラメータから HTTP ヘッダー（`x-goog-api-key`）認証へ移行し、URL履歴やログへのキー流出を防止。 |
@@ -300,6 +302,13 @@ YouTubeで再生速度の変更（0.75倍、1.25倍等）や画質調整、チ�
 - **2重リップシンク（尺合わせ）アルゴリズム**:
   - **プロンプト尺制約**: タイムスタンプ間の許容発話時間から目標日本語文字数を算出し、時間内に収まる自然な要約・言い換えをプロンプトで強制。
   - **波形タイムストレッチ**: 合成音声波形とタイムスロットの微小な誤差を `DynamicTimeStretcher.calculateWaveformStretchRatio` で自動調整。
+- **字幕(CC)完全不要＆音声ASR自動解析**:
+  - YouTube動画に英語字幕（CC）が設定されていない動画でも、動画の音声をバックグラウンドで事前取得して文字起こし（ASR）を行うため、**字幕のない動画でも100%日本語吹き替えが可能**です。
+- **手動開始トリガー＆直感的進捗表示（案B UX採用）**:
+  - 動画視聴ページを開くと、画面上部に**「🎬 AI音声吹き替え（徹底バッチ翻訳）」コントロールカード**が出現。
+  - 「吹き替えを開始」ボタンをタップするとバックグラウンド処理がスタート。
+  - 処理中はボタンがプログレスバー＆パーセント表示（`〇%`）に切り替わり、ダウンロード・文字起こし・翻訳・音声合成の進捗をリアルタイムで確認可能。
+  - 処理が完了すると鮮やかな緑色の「吹き替え完了 ✓」ボタンに切り替わり、動画再生に合わせてシームレスに吹き替え音声が再生されます。
 - **プラットフォーム規約遵守＆キャッシュ自動消去**:
   - 文字起こし（ASR）完了直後に一時音声ファイルを即座に自動消去。
   - 視聴完了から24時間経過した合成音声・翻訳キャッシュは `CacheCleanupManager` がバックグラウンドで自動ガベージコレクション。
