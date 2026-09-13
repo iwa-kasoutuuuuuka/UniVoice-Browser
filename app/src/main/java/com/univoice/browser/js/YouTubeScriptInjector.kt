@@ -129,18 +129,7 @@ object YouTubeScriptInjector {
                 log("YouTubeプレイヤー全体の全画面表示（最大化）を実行します");
                 isEnteringFullscreen = true;
                 try {
-                    // 1. video.webkitEnterFullscreen (Android WebView / WebKit 最優先)
-                    if (video && typeof video.webkitEnterFullscreen === 'function') {
-                        try {
-                            video.webkitEnterFullscreen();
-                            log("video.webkitEnterFullscreen() 実行成功");
-                            return true;
-                        } catch(e) {
-                            log("video.webkitEnterFullscreen() 例外: " + e.message);
-                        }
-                    }
-
-                    // 2. nativeRequestFullscreen
+                    // 1. nativeRequestFullscreen (HTML5 DOM要素の最大化を最優先: DOM字幕とUIを維持)
                     if (nativeRequestFullscreen) {
                         try {
                             const target = playerContainer || video;
@@ -149,17 +138,28 @@ object YouTubeScriptInjector {
                                 res.catch(function(e) {
                                     log("nativeRequestFullscreen rejected: " + e.message);
                                     if (video && video !== target) {
-                                        nativeRequestFullscreen.call(video);
+                                        try { nativeRequestFullscreen.call(video); } catch(_ex) {}
                                     }
                                 });
                             }
-                            log("nativeRequestFullscreen 実行成功");
+                            log("nativeRequestFullscreen 実行成功 (DOM字幕維持)");
                             return true;
                         } catch(e) {
                             log("nativeRequestFullscreen 例外: " + e.message);
                             if (video && video !== playerContainer) {
                                 try { nativeRequestFullscreen.call(video); } catch(_ex) {}
                             }
+                        }
+                    }
+
+                    // 2. video.webkitEnterFullscreen (フォールバック)
+                    if (video && typeof video.webkitEnterFullscreen === 'function') {
+                        try {
+                            video.webkitEnterFullscreen();
+                            log("video.webkitEnterFullscreen() 実行成功 (フォールバック)");
+                            return true;
+                        } catch(e) {
+                            log("video.webkitEnterFullscreen() 例外: " + e.message);
                         }
                     }
                 } finally {
@@ -454,7 +454,28 @@ object YouTubeScriptInjector {
                     }
                 }, false);
 
-                log("対象Video要素へのフック完了 (タッチ透過保護適用)");
+                video.addEventListener('emptied', function() {
+                    log("Video emptied 検知 (動画ソース切替準備)");
+                    lastEmittedSentence = "";
+                    pendingCaptionText = "";
+                }, false);
+
+                video.addEventListener('loadstart', function() {
+                    log("Video loadstart 検知 (新動画ロード開始)");
+                    enforceMute(video);
+                    autoCcAttemptedForVideo = false;
+                    lastFetchedTrackBaseUrl = "";
+                }, false);
+
+                video.addEventListener('loadeddata', function() {
+                    log("Video loadeddata 検知 (新動画データ準備完了)");
+                    enforceMute(video);
+                    tryAutoTranslateToJapanese();
+                    prefetchCaptionTrack();
+                    checkCaptionState();
+                }, false);
+
+                log("対象Video要素へのフック完了 (タッチ透過保護＆ライフサイクル監視適用)");
             }
 
             // ==========================================
@@ -748,30 +769,99 @@ object YouTubeScriptInjector {
             }
 
             // ==========================================
-            // 4. ループ・DOMポーリングによる堅牢性確保
+            // 4. SPA画面遷移・動画切替の確実な検知と状態リセット
             // ==========================================
+            let lastObservedUrl = window.location.href;
+
+            function extractJsVideoId(urlStr) {
+                if (!urlStr) return "";
+                try {
+                    const u = new URL(urlStr, window.location.origin);
+                    if (u.searchParams.has('v')) return u.searchParams.get('v') || "";
+                    const path = u.pathname;
+                    if (path.indexOf('/shorts/') !== -1) return path.split('/shorts/')[1].split('/')[0].split('?')[0];
+                    if (path.indexOf('/embed/') !== -1) return path.split('/embed/')[1].split('/')[0].split('?')[0];
+                } catch(e) {}
+                return "";
+            }
+
             function handlePageNavigation() {
-                log("YouTube ページ遷移を検知: " + window.location.href);
+                const currentUrl = window.location.href;
+                lastObservedUrl = currentUrl;
+                const currentVid = extractJsVideoId(currentUrl);
+                log("YouTube 画面遷移/新動画再生を検知: " + currentUrl + (currentVid ? " (ID: " + currentVid + ")" : ""));
+
+                // 字幕・デバウンス・通知状態の完全リセット
                 autoCcAttemptedForVideo = false;
                 previewMuteDismissed = false;
                 lastFetchedTrackBaseUrl = "";
                 lastReportedCaptionState = null;
                 pendingCaptionText = "";
                 lastEmittedSentence = "";
+                if (captionDebounceTimer) {
+                    clearTimeout(captionDebounceTimer);
+                    captionDebounceTimer = null;
+                }
+
+                // ネイティブ側へ新動画遷移を通知 (パイプラインのキュー・状態をリセット)
+                if (bridge && bridge.onVideoNavigated) {
+                    bridge.onVideoNavigated(currentUrl, currentVid);
+                }
+
                 tryAutoTranslateToJapanese();
                 autoDismissPreviewMute();
-                prefetchCaptionTrack();
+
+                // 既存および新規の全Video要素へのリスナー再バインドを許可
                 const videos = document.querySelectorAll('video');
                 videos.forEach(function(v) {
+                    v.__univoice_attached = false;
                     attachVideoListeners(v);
                     enforceMute(v);
                 });
+
+                setTimeout(function() {
+                    checkCaptionState();
+                    prefetchCaptionTrack();
+                }, 600);
+            }
+
+            function checkUrlNavigation() {
+                const currentUrl = window.location.href;
+                if (currentUrl !== lastObservedUrl) {
+                    handlePageNavigation();
+                }
+            }
+
+            // History API (pushState / replaceState) のフックによる即時SPA遷移検知
+            try {
+                const origPushState = history.pushState;
+                if (origPushState) {
+                    history.pushState = function() {
+                        const ret = origPushState.apply(this, arguments);
+                        setTimeout(checkUrlNavigation, 50);
+                        return ret;
+                    };
+                }
+                const origReplaceState = history.replaceState;
+                if (origReplaceState) {
+                    history.replaceState = function() {
+                        const ret = origReplaceState.apply(this, arguments);
+                        setTimeout(checkUrlNavigation, 50);
+                        return ret;
+                    };
+                }
+            } catch(e) {
+                log("History APIフック例外: " + e.message);
             }
 
             window.addEventListener('yt-navigate-finish', handlePageNavigation);
+            window.addEventListener('yt-page-data-updated', handlePageNavigation);
+            window.addEventListener('spfdone', handlePageNavigation);
             window.addEventListener('popstate', handlePageNavigation);
+            window.addEventListener('hashchange', handlePageNavigation);
 
             setInterval(function() {
+                checkUrlNavigation();
                 const videos = document.querySelectorAll('video');
                 videos.forEach(function(v) {
                     attachVideoListeners(v);
@@ -781,7 +871,7 @@ object YouTubeScriptInjector {
                 handleVideoAds();
                 checkCaptionState();
                 prefetchCaptionTrack();
-            }, 1500);
+            }, 800);
 
             observeCaptions();
             log("UniVoice JavaScript 初期化完了");

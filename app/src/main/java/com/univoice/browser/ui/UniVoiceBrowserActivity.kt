@@ -440,6 +440,18 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
                     binding.btnCardToggleCc.alpha = if (isEnabled) 1.0f else 0.5f
                 }
                 pipelineManager.onCaptionStateChanged(isEnabled)
+            },
+            onVideoNavigatedCallback = { url, videoId ->
+                runOnUiThread {
+                    if (!url.isNullOrBlank()) {
+                        currentLoadedUrl = url
+                        if (!binding.etUrl.hasFocus()) {
+                            binding.etUrl.setText(url)
+                        }
+                        updateBatchControlVisibility(url)
+                    }
+                    pipelineManager.resetForNewVideo(videoId)
+                }
             }
         )
         webView.addJavascriptInterface(jsInterface, UniVoiceJSInterface.INTERFACE_NAME)
@@ -777,7 +789,7 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
 
         binding.layoutNavBar.visibility = View.GONE
         binding.progressBar.visibility = View.GONE
-        binding.wvBrowser.visibility = View.GONE
+        binding.wvBrowser.visibility = View.INVISIBLE
 
         binding.fullscreenContainer.apply {
             removeAllViews()

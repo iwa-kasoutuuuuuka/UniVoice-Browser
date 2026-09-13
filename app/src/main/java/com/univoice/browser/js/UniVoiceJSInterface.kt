@@ -14,7 +14,8 @@ class UniVoiceJSInterface(
     private val onSubtitleReceivedCallback: (UniVoiceSubtitleCue) -> Unit,
     private val onVideoStateChangedCallback: (isPlaying: Boolean, currentTimeMs: Long) -> Unit,
     private val onAudioSuppressedCallback: (Boolean) -> Unit,
-    private val onCaptionStateChangedCallback: (Boolean) -> Unit = {}
+    private val onCaptionStateChangedCallback: (Boolean) -> Unit = {},
+    private val onVideoNavigatedCallback: (url: String?, videoId: String?) -> Unit = { _, _ -> }
 ) {
 
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -26,10 +27,11 @@ class UniVoiceJSInterface(
     }
 
     /**
-     * オリジンの正当性を検証 (YouTubeドメインのみ許可)
+     * オリジンの正当性を検証 (YouTubeドメインまたは初期化時を許可)
      */
     private fun isOriginAuthorized(): Boolean {
         val currentUrl = getCurrentUrlCallback()
+        if (currentUrl.isNullOrBlank()) return true
         val authorized = YouTubeScriptInjector.isYouTubeUrl(currentUrl)
         if (!authorized) {
             Log.w(TAG, "[Security Warning] 不正なオリジンからのJSBridge呼び出しをブロックしました: $currentUrl")
@@ -74,6 +76,18 @@ class UniVoiceJSInterface(
         Log.v(TAG, "[UniVoiceBrowser] 再生状態変更: isPlaying=$isPlaying, position=${currentTimeMs}ms")
         mainHandler.post {
             onVideoStateChangedCallback(isPlaying, currentTimeMs)
+        }
+    }
+
+    /**
+     * YouTube SPA画面遷移および新動画再生の検知通知
+     */
+    @JavascriptInterface
+    fun onVideoNavigated(url: String?, videoId: String?) {
+        if (!url.isNullOrBlank() && !YouTubeScriptInjector.isYouTubeUrl(url)) return
+        Log.i(TAG, "[UniVoiceBrowser] 新動画遷移通知受信 (SPA): url=$url, videoId=$videoId")
+        mainHandler.post {
+            onVideoNavigatedCallback(url, videoId)
         }
     }
 

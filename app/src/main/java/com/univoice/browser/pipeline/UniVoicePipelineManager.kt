@@ -432,6 +432,24 @@ class UniVoicePipelineManager(
     }
 
     /**
+     * 新しい動画再生開始時のパイプライン状態リセット
+     */
+     fun resetForNewVideo(videoId: String? = null) {
+         Log.i(TAG, "[UniVoiceBrowser] 新しい動画再生に合わせてパイプライン状態をリセット: $videoId")
+         lastReceivedText = ""
+         lastReceivedTime = 0L
+         slidingWindowQueue.clear()
+         while (cueChannel.tryReceive().isSuccess) {
+             // チャンネル内に残存している前動画のキューを全破棄
+         }
+         isVideoPlaying = true
+         _currentCue.value = null
+         _currentStatus.value = PipelineStatus.IDLE
+         _captionGuidanceMessage.value = null
+         _errorMessage.value = null
+     }
+
+    /**
      * 再生停止（完全停止）
      */
     fun stopAudio() {
