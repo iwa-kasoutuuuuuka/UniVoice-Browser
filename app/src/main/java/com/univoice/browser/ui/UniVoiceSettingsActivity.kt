@@ -91,15 +91,25 @@ class UniVoiceSettingsActivity : AppCompatActivity() {
             binding.tvTtsSpeedLabel.text = getString(R.string.label_tts_speed, value)
         }
 
-        // 速度試聴テスト
+        // 速度・音声試聴テスト
         binding.btnTestSpeechSpeed.setOnClickListener {
             val speed = binding.sliderTtsSpeed.value
+            val selectedGender = if (binding.rbVoiceMale.isChecked) {
+                com.univoice.browser.model.VoiceGender.MALE
+            } else {
+                com.univoice.browser.model.VoiceGender.FEMALE
+            }
             lifecycleScope.launch {
                 binding.btnTestSpeechSpeed.isEnabled = false
                 try {
-                    val tts = com.univoice.browser.tts.AndroidSystemTtsEngine(this@UniVoiceSettingsActivity)
+                    val tts = com.univoice.browser.tts.CloudEdgeTtsEngine(this@UniVoiceSettingsActivity, selectedGender)
                     tts.initialize()
-                    tts.synthesizeAndPlay("UniVoice Browserです。現在の発話速度は${String.format(java.util.Locale.JAPAN, "%.1f", speed)}倍です。", speed = speed)
+                    val sampleText = if (selectedGender == com.univoice.browser.model.VoiceGender.MALE) {
+                        "UniVoice Browserです。男性音声で動画を日本語吹き替えします。現在の発話速度は${String.format(java.util.Locale.JAPAN, "%.1f", speed)}倍です。"
+                    } else {
+                        "UniVoice Browserです。女性音声で動画を日本語吹き替えします。現在の発話速度は${String.format(java.util.Locale.JAPAN, "%.1f", speed)}倍です。"
+                    }
+                    tts.synthesizeAndPlay(sampleText, speed = speed)
                 } catch (_: Exception) {} finally {
                     binding.btnTestSpeechSpeed.isEnabled = true
                 }
@@ -287,6 +297,13 @@ class UniVoiceSettingsActivity : AppCompatActivity() {
         val ttsIndex = TtsEngineType.values().indexOf(settings.manualTtsEngine)
         if (ttsIndex >= 0) binding.spinnerTtsEngine.setSelection(ttsIndex)
 
+        // 音声性別
+        if (settings.voiceGender == com.univoice.browser.model.VoiceGender.MALE) {
+            binding.rbVoiceMale.isChecked = true
+        } else {
+            binding.rbVoiceFemale.isChecked = true
+        }
+
         binding.etGeminiApiKey.setText(settings.geminiApiKey)
 
         // ハードウェア・動作制御
@@ -331,6 +348,12 @@ class UniVoiceSettingsActivity : AppCompatActivity() {
             binding.spinnerTtsEngine.selectedItemPosition
         ) { TtsEngineType.LOCAL_VOICEVOX_ONNX }
 
+        val selectedVoiceGender = if (binding.rbVoiceMale.isChecked) {
+            com.univoice.browser.model.VoiceGender.MALE
+        } else {
+            com.univoice.browser.model.VoiceGender.FEMALE
+        }
+
         val rawApiKey = binding.etGeminiApiKey.text?.toString()?.trim() ?: ""
         // アプローチA（完全ローカル）選択時やAPI不要モードではAPIキーが不要なためサニタイズ
         val apiKey = if (selectedExecutionStyle == ExecutionStyle.BATCH_DOWNLOAD && selectedBatchApproach == BatchApproach.APPROACH_A_LOCAL) {
@@ -355,7 +378,8 @@ class UniVoiceSettingsActivity : AppCompatActivity() {
             audioSuppressionEnabled = audioSuppression,
             backgroundPlaybackEnabled = backgroundPlayback,
             adBlockEnabled = adBlock,
-            speechSpeed = speed
+            speechSpeed = speed,
+            voiceGender = selectedVoiceGender
         )
 
         configManager.updateSettings(newSettings)

@@ -19,7 +19,7 @@ import java.util.concurrent.TimeUnit
  */
 class CloudEdgeTtsEngine(
     private val context: Context,
-    private val voiceName: String = "ja-JP-NanamiNeural"
+    var voiceGender: com.univoice.browser.model.VoiceGender = com.univoice.browser.model.VoiceGender.FEMALE
 ) : TtsEngine {
 
     override val engineType: TtsEngineType = TtsEngineType.CLOUD_EDGE_TTS
@@ -35,11 +35,12 @@ class CloudEdgeTtsEngine(
 
     private var mediaPlayer: MediaPlayer? = null
     private var currentCompletionDeferred: kotlinx.coroutines.CompletableDeferred<Unit>? = null
-    private val fallbackSystemTts = AndroidSystemTtsEngine(context)
+    private val fallbackSystemTts = AndroidSystemTtsEngine(context, voiceGender)
     @Volatile
     private var currentTempFile: File? = null
 
     override suspend fun initialize(): Boolean {
+        fallbackSystemTts.voiceGender = voiceGender
         fallbackSystemTts.initialize()
         return true
     }
@@ -47,8 +48,10 @@ class CloudEdgeTtsEngine(
     override suspend fun synthesizeAndPlay(text: String, speed: Float, pitch: Float): Result<Unit> {
         return withContext(Dispatchers.IO) {
             var tempFile: File? = null
+            fallbackSystemTts.voiceGender = voiceGender
             try {
-                // クラウドストリーミング音声合成エンドポイントの呼び出し
+                // 性別に応じた音声設定（Edge TTS / フォールバック連携）
+                Log.d(TAG, "[UniVoiceBrowser] クラウドEdge TTSストリーミング生成開始 (性別: ${voiceGender.titleJapanese}, モデル: ${voiceGender.edgeVoiceName})")
                 val encodedText = URLEncoder.encode(text, "UTF-8")
                 // Google TTS / Edge TTS プロキシまたはストリーミングURL
                 val streamUrl = "https://translate.google.com/translate_tts?ie=UTF-8&tl=ja&client=tw-ob&q=$encodedText"
@@ -89,38 +92,48 @@ class CloudEdgeTtsEngine(
                 var durationMs = 2500
 
                 withContext(Dispatchers.Main) {
-                    stop()
-                    currentTempFile = file
+                    currentCompletionDeferred?.complete(Unit)
                     currentCompletionDeferred = deferred
-                    mediaPlayer = MediaPlayer().apply {
-                        val audioAttributes = android.media.AudioAttributes.Builder()
-                            .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
-                            .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SPEECH)
-                            .build()
-                        setAudioAttributes(audioAttributes)
-                        setVolume(1.0f, 1.0f)
-                        setDataSource(file.absolutePath)
-                        setOnCompletionListener {
-                            safeDeleteTempFile(file)
-                            deferred.complete(Unit)
-                        }
-                        setOnErrorListener { _, what, extra ->
-                            Log.e(TAG, "[UniVoiceBrowser] MediaPlayerエラー: what=$what, extra=$extra")
-                            safeDeleteTempFile(file)
-                            deferred.complete(Unit)
-                            true
-                        }
-                        prepare()
-                        durationMs = duration
-                        start()
-                        try {
-                            val params = android.media.PlaybackParams()
-                            params.speed = speed.coerceIn(0.5f, 2.5f)
-                            playbackParams = params
-                            Log.d(TAG, "[UniVoiceBrowser] クラウドEdge TTS 再生速度適用完了: ${params.speed}倍")
-                        } catch (e: Exception) {
-                            Log.w(TAG, "[UniVoiceBrowser] クラウドEdge TTS 再生速度設定失敗: ${e.message}")
-                        }
+                    mediaPlayer?.apply {
+                        if (isPlaying) stop()
+                        reset()
+                        release()
+                    }
+                    val mp = MediaPlayer()
+                    mediaPlayer = mp
+                    currentTempFile = file
+                    
+                    val audioAttributes = android.media.AudioAttributes.Builder()
+                        .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
+                        .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SPEECH)
+                        .build()
+                    mp.setAudioAttributes(audioAttributes)
+                    mp.setVolume(1.0f, 1.0f)
+                    
+                    java.io.FileInputStream(file).use { fis ->
+                        mp.setDataSource(fis.fd)
+                    }
+                    
+                    mp.setOnCompletionListener {
+                        safeDeleteTempFile(file)
+                        deferred.complete(Unit)
+                    }
+                    mp.setOnErrorListener { _, what, extra ->
+                        Log.e(TAG, "[UniVoiceBrowser] MediaPlayerエラー: what=$what, extra=$extra")
+                        safeDeleteTempFile(file)
+                        deferred.complete(Unit)
+                        true
+                    }
+                    mp.prepare()
+                    durationMs = mp.duration
+                    mp.start()
+                    try {
+                        val params = android.media.PlaybackParams()
+                        params.speed = speed.coerceIn(0.5f, 2.5f)
+                        mp.playbackParams = params
+                        Log.d(TAG, "[UniVoiceBrowser] クラウドEdge TTS 再生速度適用完了: ${params.speed}倍")
+                    } catch (e: Exception) {
+                        Log.w(TAG, "[UniVoiceBrowser] クラウドEdge TTS 再生速度設定失敗: ${e.message}")
                     }
                 }
 

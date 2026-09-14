@@ -48,6 +48,7 @@ class UniVoiceConfigManager private constructor(context: Context) {
         private const val KEY_AD_BLOCK_ENABLED = "key_ad_block_enabled"
         private const val KEY_BACKGROUND_PLAYBACK_ENABLED = "key_background_playback_enabled"
         private const val KEY_AUTO_CLEAN_CACHE_HOURS = "key_auto_clean_cache_hours"
+        private const val KEY_VOICE_GENDER = "key_voice_gender"
 
         @Volatile
         private var instance: UniVoiceConfigManager? = null
@@ -89,6 +90,8 @@ class UniVoiceConfigManager private constructor(context: Context) {
         val adBlock = prefs.getBoolean(KEY_AD_BLOCK_ENABLED, true)
         val backgroundPlayback = prefs.getBoolean(KEY_BACKGROUND_PLAYBACK_ENABLED, true)
         val autoCleanHours = prefs.getLong(KEY_AUTO_CLEAN_CACHE_HOURS, 24L)
+        val voiceGenderId = prefs.getString(KEY_VOICE_GENDER, com.univoice.browser.model.VoiceGender.FEMALE.id)
+        val voiceGender = com.univoice.browser.model.VoiceGender.fromId(voiceGenderId)
 
         return UniVoiceSettings(
             currentMode = currentMode,
@@ -106,7 +109,8 @@ class UniVoiceConfigManager private constructor(context: Context) {
             prefetchCount = prefetchCount,
             adBlockEnabled = adBlock,
             backgroundPlaybackEnabled = backgroundPlayback,
-            autoCleanCacheHours = autoCleanHours
+            autoCleanCacheHours = autoCleanHours,
+            voiceGender = voiceGender
         )
     }
 
@@ -131,11 +135,12 @@ class UniVoiceConfigManager private constructor(context: Context) {
             putBoolean(KEY_AD_BLOCK_ENABLED, newSettings.adBlockEnabled)
             putBoolean(KEY_BACKGROUND_PLAYBACK_ENABLED, newSettings.backgroundPlaybackEnabled)
             putLong(KEY_AUTO_CLEAN_CACHE_HOURS, newSettings.autoCleanCacheHours)
+            putString(KEY_VOICE_GENDER, newSettings.voiceGender.id)
             apply()
         }
 
         _settingsFlow.value = newSettings
-        Log.i(TAG, "[UniVoiceBrowser] 設定を保存しました。スタイル: ${newSettings.executionStyle.titleJapanese}, バッチアプローチ: ${newSettings.batchApproach.titleJapanese}")
+        Log.i(TAG, "[UniVoiceBrowser] 設定を保存しました。スタイル: ${newSettings.executionStyle.titleJapanese}, バッチアプローチ: ${newSettings.batchApproach.titleJapanese}, 音声性別: ${newSettings.voiceGender.titleJapanese}")
     }
 
     fun setExecutionStyle(style: ExecutionStyle) {
@@ -163,6 +168,11 @@ class UniVoiceConfigManager private constructor(context: Context) {
         updateSettings(updated)
     }
 
+    fun setVoiceGender(gender: com.univoice.browser.model.VoiceGender) {
+        val updated = _settingsFlow.value.copy(voiceGender = gender)
+        updateSettings(updated)
+    }
+
     fun resetToRecommendedDefaults() {
         val currentApiKey = _settingsFlow.value.geminiApiKey
         val defaults = UniVoiceSettings(
@@ -176,7 +186,8 @@ class UniVoiceConfigManager private constructor(context: Context) {
             speechPitch = 1.0f,
             prefetchCount = 3,
             adBlockEnabled = true,
-            autoCleanCacheHours = 24L
+            autoCleanCacheHours = 24L,
+            voiceGender = com.univoice.browser.model.VoiceGender.FEMALE
         )
         updateSettings(defaults)
         Log.i(TAG, "[UniVoiceBrowser] 推奨デフォルト設定にリセットしました")

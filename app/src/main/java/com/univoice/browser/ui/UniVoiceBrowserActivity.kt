@@ -772,7 +772,8 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
             context = this,
             geminiApiKey = settings.geminiApiKey,
             geminiModelName = settings.geminiModelName,
-            batchApproach = settings.batchApproach
+            batchApproach = settings.batchApproach,
+            voiceGender = settings.voiceGender
         )
         batchPipeline = pipeline
 

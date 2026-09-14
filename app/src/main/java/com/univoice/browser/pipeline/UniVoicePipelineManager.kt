@@ -161,6 +161,9 @@ class UniVoicePipelineManager(
 
         // TTSエンジンの選定
         val targetTtsType = settings.effectiveTtsEngine
+        cloudEdgeTts.voiceGender = settings.voiceGender
+        fallbackSystemTts.voiceGender = settings.voiceGender
+
         if (ttsEngine !== fallbackSystemTts && ttsEngine !== cloudEdgeTts) {
             ttsEngine?.release()
         }
@@ -181,7 +184,7 @@ class UniVoicePipelineManager(
             TtsEngineType.ANDROID_SYSTEM -> fallbackSystemTts
         }
         ttsEngine?.initialize()
-        Log.i(TAG, "[UniVoiceBrowser] 音声合成エンジンを初期化: ${targetTtsType.titleJapanese}")
+        Log.i(TAG, "[UniVoiceBrowser] 音声合成エンジンを初期化: ${targetTtsType.titleJapanese} (性別: ${settings.voiceGender.titleJapanese})")
     }
 
     /**

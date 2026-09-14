@@ -35,7 +35,8 @@ class BatchDownloadPipeline(
     private val context: Context,
     private val geminiApiKey: String,
     private val geminiModelName: String = "gemini-1.5-flash-latest",
-    private val batchApproach: BatchApproach = BatchApproach.APPROACH_C_HYBRID
+    private val batchApproach: BatchApproach = BatchApproach.APPROACH_C_HYBRID,
+    val voiceGender: com.univoice.browser.model.VoiceGender = com.univoice.browser.model.VoiceGender.FEMALE
 ) {
     companion object {
         private const val TAG = "BatchDownloadPipeline"

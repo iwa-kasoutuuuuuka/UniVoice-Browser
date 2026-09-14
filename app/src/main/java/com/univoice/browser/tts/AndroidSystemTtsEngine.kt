@@ -16,7 +16,10 @@ import java.util.Locale
 /**
  * Android標準のTextToSpeechエンジンを用いたフォールバック用TTS
  */
-class AndroidSystemTtsEngine(private val context: Context) : TtsEngine {
+class AndroidSystemTtsEngine(
+    private val context: Context,
+    var voiceGender: com.univoice.browser.model.VoiceGender = com.univoice.browser.model.VoiceGender.FEMALE
+) : TtsEngine {
 
     override val engineType: TtsEngineType = TtsEngineType.ANDROID_SYSTEM
 
@@ -33,7 +36,10 @@ class AndroidSystemTtsEngine(private val context: Context) : TtsEngine {
     private val speakMutex = kotlinx.coroutines.sync.Mutex()
 
     override suspend fun initialize(): Boolean {
-        if (isInitialized && tts != null) return true
+        if (isInitialized && tts != null) {
+            applyVoiceGender()
+            return true
+        }
         return withContext(Dispatchers.Main) {
             try {
                 val deferred = CompletableDeferred<Boolean>()
@@ -50,6 +56,7 @@ class AndroidSystemTtsEngine(private val context: Context) : TtsEngine {
                         } else {
                             Log.i(TAG, "[UniVoiceBrowser] Android標準TTS (日本語) 初期化完了")
                         }
+                        applyVoiceGender()
                         val audioAttributes = android.media.AudioAttributes.Builder()
                             .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
                             .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SPEECH)
@@ -83,6 +90,43 @@ class AndroidSystemTtsEngine(private val context: Context) : TtsEngine {
         }
     }
 
+    /**
+     * 端末のTextToSpeechインスタンスに男声・女声のVoiceおよびピッチを最適適用
+     */
+    fun applyVoiceGender() {
+        try {
+            val systemTts = tts ?: return
+            val voices = systemTts.voices
+            if (!voices.isNullOrEmpty()) {
+                val japaneseVoices = voices.filter { it.locale.language == Locale.JAPANESE.language }
+                if (japaneseVoices.isNotEmpty()) {
+                    val targetVoice = when (voiceGender) {
+                        com.univoice.browser.model.VoiceGender.MALE -> {
+                            // 男声の判定: 名前や属性に male, jam, jad, man, 男 などを含むもの
+                            japaneseVoices.firstOrNull { v ->
+                                val name = v.name.lowercase(Locale.ROOT)
+                                name.contains("male") || name.contains("jam") || name.contains("jad") || name.contains("-c-")
+                            } ?: japaneseVoices.lastOrNull()
+                        }
+                        com.univoice.browser.model.VoiceGender.FEMALE -> {
+                            // 女声の判定: female, jaf, woman, 女 などを含むもの
+                            japaneseVoices.firstOrNull { v ->
+                                val name = v.name.lowercase(Locale.ROOT)
+                                name.contains("female") || name.contains("jaf") || name.contains("jaa") || name.contains("-a-")
+                            } ?: japaneseVoices.firstOrNull()
+                        }
+                    }
+                    if (targetVoice != null) {
+                        systemTts.voice = targetVoice
+                        Log.i(TAG, "[UniVoiceBrowser] Android標準TTS 音声ボイス設定完了: ${targetVoice.name} (性別: ${voiceGender.titleJapanese})")
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "[UniVoiceBrowser] VoiceGender適用警告: ${e.message}")
+        }
+    }
+
     override suspend fun synthesizeAndPlay(text: String, speed: Float, pitch: Float): Result<Unit> {
         return withContext(Dispatchers.Main) {
             if (!isInitialized || tts == null) {
@@ -93,8 +137,11 @@ class AndroidSystemTtsEngine(private val context: Context) : TtsEngine {
             }
 
             try {
+                applyVoiceGender()
                 val appliedSpeed = speed.coerceIn(0.5f, 2.5f)
-                val appliedPitch = pitch.coerceIn(0.5f, 2.0f)
+                // 性別に応じたピッチの微調整（男声: 0.88f、女声: 1.08f）
+                val basePitch = voiceGender.defaultPitch
+                val appliedPitch = (pitch * basePitch).coerceIn(0.5f, 2.0f)
                 tts?.setSpeechRate(appliedSpeed)
                 tts?.setPitch(appliedPitch)
 
@@ -107,7 +154,7 @@ class AndroidSystemTtsEngine(private val context: Context) : TtsEngine {
 
                 val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager
                 val currentVol = audioManager?.getStreamVolume(android.media.AudioManager.STREAM_MUSIC) ?: -1
-                Log.d(TAG, "[UniVoiceBrowser] 標準TTS発話開始 (速度=${appliedSpeed}倍, 音量=$currentVol): $text")
+                Log.d(TAG, "[UniVoiceBrowser] 標準TTS発話開始 (性別=${voiceGender.name}, ピッチ=$appliedPitch, 速度=${appliedSpeed}倍, 音量=$currentVol): $text")
 
                 speakMutex.withLock {
                     currentDeferred?.complete(Unit)

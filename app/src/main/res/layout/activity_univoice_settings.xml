@@ -849,6 +849,57 @@
                         android:layout_marginBottom="16dp"
                         android:background="@color/divider_color" />
 
+                    <!-- 日本語音声キャラクター・性別選択 -->
+                    <TextView
+                        android:id="@+id/tvVoiceGenderLabel"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="日本語音声キャラクター (話者性別)"
+                        android:textColor="@color/on_surface"
+                        android:textSize="14sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="2dp"
+                        android:layout_marginBottom="8dp"
+                        android:text="より自然で人間らしい抑揚のニューラル発話を適用します。"
+                        android:textColor="@color/on_surface_variant"
+                        android:textSize="12sp" />
+
+                    <RadioGroup
+                        android:id="@+id/rgVoiceGender"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginBottom="12dp">
+
+                        <RadioButton
+                            android:id="@+id/rbVoiceFemale"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:buttonTint="@color/primary"
+                            android:checked="true"
+                            android:text="👩 女性音声 (Nanami / 自然で聞き取りやすい高音質)"
+                            android:textColor="@color/on_surface"
+                            android:textSize="14sp" />
+
+                        <RadioButton
+                            android:id="@+id/rbVoiceMale"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:buttonTint="@color/primary"
+                            android:text="👨 男性音声 (Keita / 落ち着いた低音のナレーション)"
+                            android:textColor="@color/on_surface"
+                            android:textSize="14sp" />
+                    </RadioGroup>
+
+                    <View
+                        android:layout_width="match_parent"
+                        android:layout_height="1dp"
+                        android:layout_marginBottom="16dp"
+                        android:background="@color/divider_color" />
+
                     <!-- 発話速度スライダー -->
                     <TextView
                         android:id="@+id/tvTtsSpeedLabel"
@@ -870,14 +921,14 @@
                         app:trackColorActive="@color/primary"
                         app:trackColorInactive="@color/surface_variant" />
 
-                    <!-- 速度試聴テストボタン -->
+                    <!-- 試聴テストボタン -->
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btnTestSpeechSpeed"
                         style="@style/Widget.Material3.Button.OutlinedButton"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="4dp"
-                        android:text="🔊 この速度で試聴する"
+                        android:text="🔊 選択した音声と速度で試聴する"
                         android:textColor="@color/primary"
                         app:strokeColor="@color/primary" />
 

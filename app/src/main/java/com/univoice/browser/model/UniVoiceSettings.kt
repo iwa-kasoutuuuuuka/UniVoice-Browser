@@ -19,7 +19,8 @@ data class UniVoiceSettings(
     val prefetchCount: Int = 3,
     val adBlockEnabled: Boolean = true,
     val backgroundPlaybackEnabled: Boolean = true,
-    val autoCleanCacheHours: Long = 24L
+    val autoCleanCacheHours: Long = 24L,
+    val voiceGender: VoiceGender = VoiceGender.FEMALE
 ) {
     /**
      * 現在の動作モードに応じた実効翻訳エンジンを取得
