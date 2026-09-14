@@ -42,6 +42,8 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
     private lateinit var pipelineManager: UniVoicePipelineManager
     private var batchPipeline: com.univoice.browser.batch.BatchDownloadPipeline? = null
     private var batchJob: kotlinx.coroutines.Job? = null
+    private var batchPlayer: com.univoice.browser.batch.BatchDubbingPlayer? = null
+    private var completedBatchSegments: List<com.univoice.browser.batch.TimedSegment>? = null
 
     // フローティング字幕カード状態管理
     private var isCardMinimized: Boolean = false
@@ -94,6 +96,22 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
 
         configManager = UniVoiceConfigManager.getInstance(this)
         pipelineManager = UniVoicePipelineManager(this, configManager)
+        batchPlayer = com.univoice.browser.batch.BatchDubbingPlayer(this).apply {
+            onSegmentChanged = { segment ->
+                runOnUiThread {
+                    binding.tvTranslatedSubtitle.text = segment.translatedText
+                }
+            }
+            onPlaybackStateChanged = { isPlaying ->
+                runOnUiThread {
+                    if (isPlaying) {
+                        binding.btnStartBatchDubbing.text = "⏸ 一時停止"
+                    } else {
+                        binding.btnStartBatchDubbing.text = "▶ 再開"
+                    }
+                }
+            }
+        }
 
         setupNavigationControls()
         setupSubtitleOverlayInteractions()
@@ -271,9 +289,35 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
             toggleDockPosition()
         }
 
-        // 6. ダウンロード徹底バッチ翻訳の「吹き替えを開始」ボタン
+        // 6. ダウンロード徹底バッチ翻訳の「吹き替えを開始」/「日本語版再生」ボタン
         binding.btnStartBatchDubbing.setOnClickListener {
-            startBatchDubbingProcess()
+            val player = batchPlayer
+            val segments = completedBatchSegments
+            if (player != null && segments != null && segments.isNotEmpty()) {
+                // すでに日本語吹き替えが用意されている場合: 日本語版同期再生 / 一時停止トグル
+                if (player.isActive) {
+                    player.pauseDubbing()
+                    binding.wvBrowser.evaluateJavascript("const v = document.querySelector('video'); if (v && !v.paused) v.pause();", null)
+                } else {
+                    // 日本語版再生開始: 動画の元音声を完全にミュートし、再生位置を取得して同期開始
+                    binding.wvBrowser.evaluateJavascript("""
+                        (function() {
+                            const v = document.querySelector('video');
+                            if (v) {
+                                v.muted = true;
+                                if (v.paused) v.play();
+                                return Math.floor(v.currentTime * 1000);
+                            }
+                            return 0;
+                        })();
+                    """.trimIndent()) { resultStr ->
+                        val posMs = resultStr?.replace("\"", "")?.toLongOrNull() ?: 0L
+                        player.startDubbing(posMs)
+                    }
+                }
+            } else {
+                startBatchDubbingProcess()
+            }
         }
 
         // 7. 自由ドラッグ移動ハンドリング (ドラッグ領域でのみスワイプ移動)
@@ -439,17 +483,22 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
             onSubtitleReceivedCallback = { cue ->
                 pipelineManager.onSubtitleReceived(cue)
             },
-            onVideoStateChangedCallback = { isPlaying, _ ->
+            onVideoStateChangedCallback = { isPlaying, currentTimeMs ->
                 runOnUiThread {
                     binding.btnPlayPause.setImageResource(
                         if (isPlaying) R.drawable.ic_pause else R.drawable.ic_play_arrow
                     )
                 }
+                // バッチ吹き替えプレイヤーが有効な場合はタイムスタンプ同期を優先
+                batchPlayer?.onVideoPositionChanged(isPlaying, currentTimeMs)
+
                 if (!isPlaying) {
                     // 動画停止時は音声再生中TTSのみ停止（キューや翻訳事前バッファは破棄せず維持し、一時停止中の先読みを継続）
                     pipelineManager.pauseAudioOutputOnly()
                 } else {
-                    pipelineManager.resumeAudioOutput()
+                    if (batchPlayer?.isActive != true) {
+                        pipelineManager.resumeAudioOutput()
+                    }
                 }
             },
             onAudioSuppressedCallback = { isSuppressed ->
@@ -737,9 +786,9 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
 
                     if (status.isCompleted) {
                         binding.btnStartBatchDubbing.isEnabled = true
-                        binding.btnStartBatchDubbing.text = "吹き替え完了 ✓"
+                        binding.btnStartBatchDubbing.text = "▶ 日本語版再生"
                         binding.btnStartBatchDubbing.setBackgroundColor(android.graphics.Color.parseColor("#2E7D32"))
-                        binding.tvTranslatedSubtitle.text = "✨ 高品質AI吹き替えが準備できました。動画を再生してお楽しみください！"
+                        binding.tvTranslatedSubtitle.text = "✨ 日本語音声と動画の準備が完了しました！「▶ 日本語版再生」を押して視聴してください"
                     } else if (status.errorMessage != null) {
                         binding.btnStartBatchDubbing.isEnabled = true
                         binding.btnStartBatchDubbing.text = "再試行"
@@ -759,6 +808,14 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
             )
             result.onSuccess { segments ->
                 Log.i(TAG, "[UniVoiceBrowser] バッチ吹き替え生成完了: ${segments.size} セグメント")
+                completedBatchSegments = segments
+                batchPlayer?.loadSegments(segments)
+                runOnUiThread {
+                    binding.btnStartBatchDubbing.isEnabled = true
+                    binding.btnStartBatchDubbing.text = "▶ 日本語版再生"
+                    binding.btnStartBatchDubbing.setBackgroundColor(android.graphics.Color.parseColor("#2E7D32"))
+                    binding.tvTranslatedSubtitle.text = "✨ 日本語音声と動画の準備が完了しました！「▶ 日本語版再生」を押して視聴してください"
+                }
             }.onFailure { error ->
                 Log.e(TAG, "[UniVoiceBrowser] バッチ吹き替え生成失敗: ${error.message}", error)
             }
@@ -989,6 +1046,8 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
         hideCustomView()
         super.onDestroy()
         com.univoice.browser.service.UniVoicePlaybackService.stop(this)
+        batchPlayer?.release()
+        batchPlayer = null
         pipelineManager.release()
         binding.wvBrowser.destroy()
     }
