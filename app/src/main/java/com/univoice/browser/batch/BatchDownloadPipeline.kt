@@ -260,9 +260,25 @@ class BatchDownloadPipeline(
         videoTitle: String
     ): List<TimedSegment> {
         if (geminiApiKey.isBlank()) {
-            // APIキーがない場合はローカル辞書/フォールバック翻訳
+            // APIキーがない場合は無料Web翻訳エンジンで高品質翻訳
+            Log.i(TAG, "[UniVoiceBrowser] Gemini APIキー未設定のため、無料Web翻訳エンジンを実行します")
             segments.forEach { seg ->
-                seg.translatedText = seg.originalText + "（日本語訳）"
+                try {
+                    val res = freeWebTranslation.translate(seg.originalText, emptyList())
+                    val translated = res.getOrNull()
+                    if (!translated.isNullOrBlank()) {
+                        val maxChars = seg.maxRecommendedJapaneseChars
+                        seg.translatedText = if (translated.length > maxChars * 1.5) {
+                            translated.take((maxChars * 1.3).toInt()) + "…"
+                        } else {
+                            translated
+                        }
+                    } else {
+                        seg.translatedText = ""
+                    }
+                } catch (e: Exception) {
+                    seg.translatedText = ""
+                }
             }
             return segments
         }
@@ -378,10 +394,10 @@ class BatchDownloadPipeline(
                             translated
                         }
                     } else {
-                        seg.translatedText = seg.originalText
+                        seg.translatedText = ""
                     }
                 } catch (e: Exception) {
-                    seg.translatedText = seg.originalText
+                    seg.translatedText = ""
                 }
             }
         }

@@ -130,12 +130,14 @@ class LocalAiEdgeTranslationEngine(
             }
         }
 
-        val containsJapanese = replaced.any { it.code in 0x3040..0x30FF || it.code in 0x4E00..0x9FFF }
-        if (containsJapanese) {
+        val nonWhitespace = replaced.filter { !it.isWhitespace() }
+        val jaCount = nonWhitespace.count { it.code in 0x3040..0x30FF || it.code in 0x4E00..0x9FFF }
+        val isSubstantialJa = nonWhitespace.isNotEmpty() && (jaCount.toFloat() / nonWhitespace.length) >= 0.35f
+        if (isSubstantialJa) {
             return replaced
         }
 
-        return "動画の音声: $text"
+        return ""
     }
 
     override fun release() {

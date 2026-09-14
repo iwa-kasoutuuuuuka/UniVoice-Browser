@@ -253,6 +253,13 @@ class UniVoicePipelineManager(
         _errorMessage.value = null
     }
 
+    private fun isSubstantiallyJapanese(text: String): Boolean {
+        val nonWhitespace = text.filter { !it.isWhitespace() }
+        if (nonWhitespace.isEmpty()) return false
+        val jaCount = nonWhitespace.count { it.code in 0x3040..0x30FF || it.code in 0x4E00..0x9FFF }
+        return (jaCount.toFloat() / nonWhitespace.length) >= 0.35f
+    }
+
     /**
      * 単一字幕キューのパイプライン実行 (先読みキャッシュ確認 -> 翻訳 -> 音声合成再生)
      */
@@ -262,8 +269,8 @@ class UniVoicePipelineManager(
 
         val settings = configManager.currentSettings
 
-        // 1. すでに日本語字幕の場合は翻訳処理をバイパスして即座に利用
-        val isAlreadyJapanese = cleanText.any { it.code in 0x3040..0x30FF || it.code in 0x4E00..0x9FFF }
+        // 1. すでに実質的な日本語字幕の場合は翻訳処理をバイパスして即座に利用 (35%以上が日本語)
+        val isAlreadyJapanese = isSubstantiallyJapanese(cleanText)
         var translated: String = if (isAlreadyJapanese) {
             cleanText
         } else {
@@ -285,15 +292,18 @@ class UniVoicePipelineManager(
                 }
             }
 
-            if (translated.isNotBlank()) {
+            if (translated.isNotBlank() && isSubstantiallyJapanese(translated)) {
                 putTranslationCache(cleanText, translated)
+            } else if (!isSubstantiallyJapanese(translated)) {
+                Log.w(TAG, "[UniVoiceBrowser] 翻訳結果が日本語ではないため破棄: [$cleanText] -> [$translated]")
+                translated = ""
             }
         } else {
             Log.d(TAG, "[UniVoiceBrowser] キャッシュまたは直接日本語ヒット: [$cleanText] -> [$translated]")
         }
 
-        if (translated.isBlank()) {
-            Log.w(TAG, "[UniVoiceBrowser] 日本語訳が取得できなかったため再生スキップ: $cleanText")
+        if (translated.isBlank() || !isSubstantiallyJapanese(translated)) {
+            Log.w(TAG, "[UniVoiceBrowser] 日本語訳が取得できなかった（または非日本語）ため音声合成スキップ: $cleanText")
             _currentStatus.value = PipelineStatus.IDLE
             return
         }
@@ -382,7 +392,7 @@ class UniVoicePipelineManager(
             for (pending in pendingList.take(20)) {
                 val clean = pending.cleanText
                 if (clean.isNotBlank() && !translationCache.containsKey(clean)) {
-                    val isJp = clean.any { it.code in 0x3040..0x30FF || it.code in 0x4E00..0x9FFF }
+                    val isJp = isSubstantiallyJapanese(clean)
                     if (isJp) {
                         putTranslationCache(clean, clean)
                         pending.translatedText = clean
@@ -391,7 +401,7 @@ class UniVoicePipelineManager(
                     }
                     val history = slidingWindowQueue.map { it.cleanText }
                     val trans = (translationEngine ?: freeWebTranslation).translate(clean, history).getOrNull()
-                    if (!trans.isNullOrBlank()) {
+                    if (!trans.isNullOrBlank() && isSubstantiallyJapanese(trans)) {
                         putTranslationCache(clean, trans)
                         pending.translatedText = trans
                         _prefetchedCountFlow.value = translationCache.size

@@ -37,6 +37,13 @@ class FreeWebTranslationEngine : TranslationEngine {
         return true
     }
 
+    private fun isSubstantiallyJapanese(text: String): Boolean {
+        val nonWhitespace = text.filter { !it.isWhitespace() }
+        if (nonWhitespace.isEmpty()) return false
+        val jaCount = nonWhitespace.count { it.code in 0x3040..0x30FF || it.code in 0x4E00..0x9FFF }
+        return (jaCount.toFloat() / nonWhitespace.length) >= 0.35f
+    }
+
     override suspend fun translate(text: String, contextHistory: List<String>): Result<String> {
         return withContext(Dispatchers.IO) {
             val clean = text.trim().trimStart('.', ',', ':', ';', '!', '?', '-', ' ').trim()
@@ -44,9 +51,8 @@ class FreeWebTranslationEngine : TranslationEngine {
                 return@withContext Result.failure(IllegalArgumentException("字幕テキストが空または記号のみです"))
             }
 
-            // すでに日本語が含まれている場合はそのまま使用
-            val containsJapanese = clean.any { it.code in 0x3040..0x30FF || it.code in 0x4E00..0x9FFF }
-            if (containsJapanese) {
+            // すでに本格的な日本語文が含まれている場合はそのまま使用 (35%以上が日本語文字)
+            if (isSubstantiallyJapanese(clean)) {
                 return@withContext Result.success(clean)
             }
 
@@ -55,7 +61,45 @@ class FreeWebTranslationEngine : TranslationEngine {
                 return@withContext Result.success(it)
             }
 
-            // 1. Google Translate Mobile Web (高速・高品質・制限なし)
+            // 1. Google GTX API (高速・高品質・CAPTCHAフリー・JSON形式)
+            try {
+                val encoded = URLEncoder.encode(clean, "UTF-8")
+                val googleUrl = "https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=ja&dt=t&q=$encoded"
+
+                val request = Request.Builder()
+                    .url(googleUrl)
+                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36")
+                    .build()
+
+                httpClient.newCall(request).execute().use { response ->
+                    if (response.isSuccessful) {
+                        val body = response.body?.string() ?: ""
+                        if (body.startsWith("[")) {
+                            val jsonArray = org.json.JSONArray(body)
+                            val sentencesArray = jsonArray.optJSONArray(0)
+                            if (sentencesArray != null && sentencesArray.length() > 0) {
+                                val sb = StringBuilder()
+                                for (i in 0 until sentencesArray.length()) {
+                                    val item = sentencesArray.optJSONArray(i)
+                                    val part = item?.optString(0) ?: ""
+                                    sb.append(part)
+                                }
+                                val rawJa = sb.toString().trim()
+                                val unescaped = unescapeHtml(rawJa).trimStart('.', '。', ' ', ',').trim()
+                                if (unescaped.isNotBlank() && isSubstantiallyJapanese(unescaped)) {
+                                    Log.d(TAG, "[UniVoiceBrowser] Google GTX翻訳成功: [$clean] -> [$unescaped]")
+                                    localMemoryCache[clean] = unescaped
+                                    return@withContext Result.success(unescaped)
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "[UniVoiceBrowser] Google GTX翻訳例外: ${e.message}。MyMemoryへフォールバックします")
+            }
+
+            // 2. Google Translate Mobile Web (第2フォールバック)
             try {
                 val encoded = URLEncoder.encode(clean, "UTF-8")
                 val googleUrl = "https://translate.google.com/m?sl=auto&tl=ja&q=$encoded"
@@ -72,8 +116,8 @@ class FreeWebTranslationEngine : TranslationEngine {
                         if (matcher.find()) {
                             val rawJa = matcher.group(1)?.trim() ?: ""
                             val unescaped = unescapeHtml(rawJa).trimStart('.', '。', ' ', ',').trim()
-                            if (unescaped.isNotBlank()) {
-                                Log.d(TAG, "[UniVoiceBrowser] Google Web翻訳成功: [$clean] -> [$unescaped]")
+                            if (unescaped.isNotBlank() && isSubstantiallyJapanese(unescaped)) {
+                                Log.d(TAG, "[UniVoiceBrowser] Google Mobile Web翻訳成功: [$clean] -> [$unescaped]")
                                 localMemoryCache[clean] = unescaped
                                 return@withContext Result.success(unescaped)
                             }
@@ -84,7 +128,7 @@ class FreeWebTranslationEngine : TranslationEngine {
                 Log.w(TAG, "[UniVoiceBrowser] Google Web翻訳例外: ${e.message}。MyMemoryへフォールバックします")
             }
 
-            // 2. MyMemory 高速翻訳API (フォールバック)
+            // 3. MyMemory 高速翻訳API (第3フォールバック)
             try {
                 val encoded = URLEncoder.encode(clean, "UTF-8")
                 val myMemoryUrl = "https://api.mymemory.translated.net/get?q=$encoded&langpair=en|ja&de=univoice.browser@gmail.com"
@@ -101,7 +145,7 @@ class FreeWebTranslationEngine : TranslationEngine {
                         val trans = json.optJSONObject("responseData")?.optString("translatedText")?.trim() ?: ""
                         if (trans.isNotBlank() && !trans.startsWith("MYMEMORY WARNING")) {
                             val unescaped = unescapeHtml(trans).trimStart('.', '。', ' ', ',').trim()
-                            if (unescaped.isNotBlank()) {
+                            if (unescaped.isNotBlank() && isSubstantiallyJapanese(unescaped)) {
                                 Log.d(TAG, "[UniVoiceBrowser] MyMemory翻訳成功: [$clean] -> [$unescaped]")
                                 localMemoryCache[clean] = unescaped
                                 return@withContext Result.success(unescaped)
@@ -113,13 +157,13 @@ class FreeWebTranslationEngine : TranslationEngine {
                 Log.w(TAG, "[UniVoiceBrowser] MyMemory翻訳例外: ${e.message}")
             }
 
-            // 3. ローカル定型フレーズ辞書
+            // 4. ローカル定型フレーズ辞書
             val fallback = fallbackDictionaryTranslate(clean)
             if (fallback.isSuccess) {
                 return@withContext fallback
             }
 
-            Result.failure(IllegalStateException("翻訳結果の取得に失敗しました: $clean"))
+            Result.failure(IllegalStateException("日本語への翻訳結果を取得できませんでした: $clean"))
         }
     }
 
@@ -158,7 +202,7 @@ class FreeWebTranslationEngine : TranslationEngine {
             }
         }
 
-        val hasJapanese = replaced.any { it.code in 0x3040..0x30FF || it.code in 0x4E00..0x9FFF }
+        val hasJapanese = isSubstantiallyJapanese(replaced)
         return if (hasJapanese) {
             Result.success(replaced)
         } else {
