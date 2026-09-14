@@ -136,9 +136,12 @@ class UniVoiceSettingsActivity : AppCompatActivity() {
 
             binding.layoutManualSettings.visibility = if (isManual) View.VISIBLE else View.GONE
             binding.layoutGeminiApiKeySection.visibility = if (isPureLocal) View.GONE else View.VISIBLE
-            // ローカルモデル管理は完全ローカル、または手動設定時に役立つ
-            binding.layoutLocalModelsContainer.visibility = if (isPureLocal || isManual) View.VISIBLE else View.GONE
         }
+
+        // オンデバイスAIモデル管理コンテナの表示制御
+        // バッチ翻訳時（Whisperや完全ローカル用）、またはストリーミングの完全ローカル/手動設定時に表示
+        val showLocalModels = if (isBatch) true else (binding.rbPureLocal.isChecked || binding.rbManual.isChecked)
+        binding.layoutLocalModelsContainer.visibility = if (showLocalModels) View.VISIBLE else View.GONE
     }
 
     /**
@@ -215,6 +218,17 @@ class UniVoiceSettingsActivity : AppCompatActivity() {
         binding.tvVoicevoxStatus.setTextColor(
             if (voicevoxInstalled) android.graphics.Color.parseColor("#2E7D32") else android.graphics.Color.parseColor("#C62828")
         )
+
+        val whisperInstalled = modelMgr.isModelInstalled(com.univoice.browser.modelmgr.ModelDownloadManager.MODEL_WHISPER)
+        val whisperSize = modelMgr.getModelSizeFormatted(com.univoice.browser.modelmgr.ModelDownloadManager.MODEL_WHISPER)
+        binding.tvWhisperStatus.text = if (whisperInstalled) {
+            "Whisper 音声文字起こし: 配備完了 ($whisperSize - バッチ文字起こし準備完了)"
+        } else {
+            "Whisper 音声文字起こし: 未配備 (バッチ音声認識時に必要)"
+        }
+        binding.tvWhisperStatus.setTextColor(
+            if (whisperInstalled) android.graphics.Color.parseColor("#2E7D32") else android.graphics.Color.parseColor("#C62828")
+        )
     }
 
     private fun startModelDeployment() {
@@ -226,11 +240,12 @@ class UniVoiceSettingsActivity : AppCompatActivity() {
         lifecycleScope.launch {
             modelMgr.downloadOrInstallModel(com.univoice.browser.modelmgr.ModelDownloadManager.MODEL_GEMMA)
             modelMgr.downloadOrInstallModel(com.univoice.browser.modelmgr.ModelDownloadManager.MODEL_VOICEVOX)
+            modelMgr.downloadOrInstallModel(com.univoice.browser.modelmgr.ModelDownloadManager.MODEL_WHISPER)
             binding.pbModelDownload.visibility = View.GONE
             binding.btnDownloadModels.isEnabled = true
             binding.btnDownloadModels.text = "ローカルAIモデルを再配備 / 更新"
             refreshModelStatus()
-            Toast.makeText(this@UniVoiceSettingsActivity, "ローカルAIモデルの配備が完了しました", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this@UniVoiceSettingsActivity, "ローカルAIモデル（Gemma/VOICEVOX/Whisper）の配備が完了しました", Toast.LENGTH_SHORT).show()
         }
     }
 

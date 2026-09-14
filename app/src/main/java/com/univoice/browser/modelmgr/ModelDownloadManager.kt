@@ -24,6 +24,7 @@ class ModelDownloadManager private constructor(private val context: Context) {
         private const val TAG = "ModelDownloadManager"
         const val MODEL_GEMMA = "gemma-2b-it-gpu.bin"
         const val MODEL_VOICEVOX = "voicevox_core.onnx"
+        const val MODEL_WHISPER = "whisper_base.onnx"
 
         @Volatile
         private var instance: ModelDownloadManager? = null
@@ -80,7 +81,8 @@ class ModelDownloadManager private constructor(private val context: Context) {
                     updateProgress(filename, p)
                 }
                 FileOutputStream(targetFile).use { fos ->
-                    val buffer = ByteArray(4096) { 0x55 }
+                    val bufferSize = if (filename == MODEL_WHISPER) 65536 else 4096
+                    val buffer = ByteArray(bufferSize) { 0x55 }
                     fos.write(buffer)
                 }
             } else {

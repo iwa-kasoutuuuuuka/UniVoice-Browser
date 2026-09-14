@@ -371,80 +371,6 @@
                         </LinearLayout>
                     </com.google.android.material.card.MaterialCardView>
                 </LinearLayout>
-
-                <!-- オンデバイスAIモデル管理 (完全ローカル用) -->
-                <LinearLayout
-                    android:id="@+id/layoutLocalModelsContainer"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="vertical">
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginBottom="8dp"
-                        android:text="オンデバイスAIモデル管理 (ローカル処理用)"
-                        android:textColor="@color/on_surface"
-                        android:textSize="16sp"
-                        android:textStyle="bold" />
-
-                    <com.google.android.material.card.MaterialCardView
-                        android:id="@+id/cardLocalModels"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginBottom="16dp"
-                        app:cardBackgroundColor="@color/surface"
-                        app:cardCornerRadius="12dp"
-                        app:cardElevation="2dp"
-                        app:strokeColor="@color/divider_color"
-                        app:strokeWidth="1dp">
-
-                        <LinearLayout
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:orientation="vertical"
-                            android:padding="16dp">
-
-                            <TextView
-                                android:id="@+id/tvGemmaStatus"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:text="Gemma 2B LLM (MediaPipe): 確認中..."
-                                android:textColor="@color/on_surface"
-                                android:textSize="13sp" />
-
-                            <TextView
-                                android:id="@+id/tvVoicevoxStatus"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:layout_marginTop="4dp"
-                                android:text="VOICEVOX ONNX音声モデル: 確認中..."
-                                android:textColor="@color/on_surface"
-                                android:textSize="13sp" />
-
-                            <ProgressBar
-                                android:id="@+id/pbModelDownload"
-                                style="?android:attr/progressBarStyleHorizontal"
-                                android:layout_width="match_parent"
-                                android:layout_height="6dp"
-                                android:layout_marginTop="10dp"
-                                android:progressTint="@color/primary"
-                                android:visibility="gone" />
-
-                            <Button
-                                android:id="@+id/btnDownloadModels"
-                                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
-                                android:layout_width="match_parent"
-                                android:layout_height="44dp"
-                                android:layout_marginTop="12dp"
-                                android:text="ローカルAIモデルを配備 / 更新"
-                                android:textColor="@color/primary"
-                                android:textSize="13sp"
-                                app:strokeColor="@color/primary" />
-
-                        </LinearLayout>
-                    </com.google.android.material.card.MaterialCardView>
-                </LinearLayout>
             </LinearLayout>
 
             <!-- ========================================== -->
@@ -610,6 +536,89 @@
                             android:textColor="#C62828"
                             android:textSize="13sp"
                             app:strokeColor="#EF9A9A" />
+                    </LinearLayout>
+                </com.google.android.material.card.MaterialCardView>
+            </LinearLayout>
+
+            <!-- オンデバイスAIモデル管理 (ローカル処理・Whisper用) -->
+            <LinearLayout
+                android:id="@+id/layoutLocalModelsContainer"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="8dp"
+                    android:text="オンデバイスAIモデル管理 (ローカル処理・音声文字起こし)"
+                    android:textColor="@color/on_surface"
+                    android:textSize="16sp"
+                    android:textStyle="bold" />
+
+                <com.google.android.material.card.MaterialCardView
+                    android:id="@+id/cardLocalModels"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="16dp"
+                    app:cardBackgroundColor="@color/surface"
+                    app:cardCornerRadius="12dp"
+                    app:cardElevation="2dp"
+                    app:strokeColor="@color/divider_color"
+                    app:strokeWidth="1dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:padding="16dp">
+
+                        <TextView
+                            android:id="@+id/tvGemmaStatus"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Gemma 2B LLM (MediaPipe): 確認中..."
+                            android:textColor="@color/on_surface"
+                            android:textSize="13sp" />
+
+                        <TextView
+                            android:id="@+id/tvVoicevoxStatus"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="4dp"
+                            android:text="VOICEVOX ONNX音声モデル: 確認中..."
+                            android:textColor="@color/on_surface"
+                            android:textSize="13sp" />
+
+                        <TextView
+                            android:id="@+id/tvWhisperStatus"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="4dp"
+                            android:text="Whisper 音声文字起こしモデル: 確認中..."
+                            android:textColor="@color/on_surface"
+                            android:textSize="13sp" />
+
+                        <ProgressBar
+                            android:id="@+id/pbModelDownload"
+                            style="?android:attr/progressBarStyleHorizontal"
+                            android:layout_width="match_parent"
+                            android:layout_height="6dp"
+                            android:layout_marginTop="10dp"
+                            android:progressTint="@color/primary"
+                            android:visibility="gone" />
+
+                        <Button
+                            android:id="@+id/btnDownloadModels"
+                            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                            android:layout_width="match_parent"
+                            android:layout_height="44dp"
+                            android:layout_marginTop="12dp"
+                            android:text="ローカルAIモデルを配備 / 更新"
+                            android:textColor="@color/primary"
+                            android:textSize="13sp"
+                            app:strokeColor="@color/primary" />
+
                     </LinearLayout>
                 </com.google.android.material.card.MaterialCardView>
             </LinearLayout>
