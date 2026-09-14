@@ -606,7 +606,7 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
         }
 
         val isDebuggable = (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
-        if (isDebuggable && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.KITKAT) {
+        if (isDebuggable) {
             WebView.setWebContentsDebuggingEnabled(true)
         }
 
@@ -973,12 +973,7 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
         super.onPause()
 
         // PiPモード（小画面継続表示）またはActivity破棄中の場合はサービス起動をスキップ
-        val isPip = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
-            isInPictureInPictureMode
-        } else {
-            false
-        }
-        if (isPip || isFinishing) {
+        if (isInPictureInPictureMode || isFinishing) {
             return
         }
 
@@ -1006,17 +1001,15 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
      * ピクチャー・イン・ピクチャー (PiP) モードの開始
      */
     private fun enterPipMode() {
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-            try {
-                val aspectRatio = android.util.Rational(16, 9)
-                val params = android.app.PictureInPictureParams.Builder()
-                    .setAspectRatio(aspectRatio)
-                    .build()
-                enterPictureInPictureMode(params)
-                Log.i(TAG, "[UniVoiceBrowser] ピクチャー・イン・ピクチャー (PiP) モードを開始しました")
-            } catch (e: Exception) {
-                Log.e(TAG, "[UniVoiceBrowser] PiP開始エラー: ${e.message}", e)
-            }
+        try {
+            val aspectRatio = android.util.Rational(16, 9)
+            val params = android.app.PictureInPictureParams.Builder()
+                .setAspectRatio(aspectRatio)
+                .build()
+            enterPictureInPictureMode(params)
+            Log.i(TAG, "[UniVoiceBrowser] ピクチャー・イン・ピクチャー (PiP) モードを開始しました")
+        } catch (e: Exception) {
+            Log.e(TAG, "[UniVoiceBrowser] PiP開始エラー: ${e.message}", e)
         }
     }
 

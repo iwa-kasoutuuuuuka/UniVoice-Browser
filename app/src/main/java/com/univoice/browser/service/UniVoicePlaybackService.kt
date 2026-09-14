@@ -35,11 +35,7 @@ class UniVoicePlaybackService : Service() {
                 val intent = Intent(context, UniVoicePlaybackService::class.java).apply {
                     action = ACTION_START
                 }
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    context.startForegroundService(intent)
-                } else {
-                    context.startService(intent)
-                }
+                context.startForegroundService(intent)
             } catch (e: Exception) {
                 Log.w(TAG, "[UniVoiceBrowser] サービス開始要求例外 (バックグラウンド起動制限等): ${e.message}")
             }
@@ -131,19 +127,17 @@ class UniVoicePlaybackService : Service() {
     }
 
     private fun createNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                CHANNEL_ID,
-                "UniVoice バックグラウンド再生",
-                NotificationManager.IMPORTANCE_LOW
-            ).apply {
-                description = "画面消灯・バックグラウンド時でも日本語音声合成の再生を維持します"
-                setShowBadge(false)
-                lockscreenVisibility = Notification.VISIBILITY_PUBLIC
-            }
-            val manager = getSystemService(NotificationManager::class.java)
-            manager?.createNotificationChannel(channel)
+        val channel = NotificationChannel(
+            CHANNEL_ID,
+            "UniVoice バックグラウンド再生",
+            NotificationManager.IMPORTANCE_LOW
+        ).apply {
+            description = "画面消灯・バックグラウンド時でも日本語音声合成の再生を維持します"
+            setShowBadge(false)
+            lockscreenVisibility = Notification.VISIBILITY_PUBLIC
         }
+        val manager = getSystemService(NotificationManager::class.java)
+        manager?.createNotificationChannel(channel)
     }
 
     private fun buildNotification(contentText: String): Notification {

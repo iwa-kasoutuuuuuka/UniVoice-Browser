@@ -18,7 +18,9 @@ import java.util.Locale
  * オンデバイスAIモデル（Gemma 2B INT4, VOICEVOX ONNX）の配置状態、
  * ダウンロード進捗、およびストレージ管理を行うマネージャー
  */
-class ModelDownloadManager private constructor(private val context: Context) {
+class ModelDownloadManager private constructor(context: Context) {
+
+    private val appContext = context.applicationContext
 
     companion object {
         private const val TAG = "ModelDownloadManager"
@@ -36,7 +38,7 @@ class ModelDownloadManager private constructor(private val context: Context) {
         }
     }
 
-    private val modelsDir = File(context.filesDir, "models").apply {
+    private val modelsDir = File(appContext.filesDir, "models").apply {
         if (!exists()) mkdirs()
     }
 

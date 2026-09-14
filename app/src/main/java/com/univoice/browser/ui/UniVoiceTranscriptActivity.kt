@@ -118,13 +118,16 @@ class UniVoiceTranscriptActivity : AppCompatActivity() {
 
     // --- RecyclerView Adapter ---
 
-    private class TranscriptAdapter : RecyclerView.Adapter<TranscriptAdapter.ViewHolder>() {
+    private class TranscriptAdapter : androidx.recyclerview.widget.ListAdapter<UniVoiceSubtitleCue, TranscriptAdapter.ViewHolder>(DiffCallback) {
 
-        private var items: List<UniVoiceSubtitleCue> = emptyList()
+        object DiffCallback : androidx.recyclerview.widget.DiffUtil.ItemCallback<UniVoiceSubtitleCue>() {
+            override fun areItemsTheSame(oldItem: UniVoiceSubtitleCue, newItem: UniVoiceSubtitleCue): Boolean {
+                return oldItem.startTimeMs == newItem.startTimeMs && oldItem.cleanText == newItem.cleanText
+            }
 
-        fun submitList(newItems: List<UniVoiceSubtitleCue>) {
-            items = newItems
-            notifyDataSetChanged()
+            override fun areContentsTheSame(oldItem: UniVoiceSubtitleCue, newItem: UniVoiceSubtitleCue): Boolean {
+                return oldItem == newItem
+            }
         }
 
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
@@ -133,10 +136,8 @@ class UniVoiceTranscriptActivity : AppCompatActivity() {
         }
 
         override fun onBindViewHolder(holder: ViewHolder, position: Int) {
-            holder.bind(items[position])
+            holder.bind(getItem(position))
         }
-
-        override fun getItemCount(): Int = items.size
 
         class ViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
             private val tvTimestamp: TextView = itemView.findViewById(R.id.tvRowTimestamp)
