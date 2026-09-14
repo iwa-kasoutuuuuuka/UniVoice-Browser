@@ -120,6 +120,7 @@
 | **🛡️ 包括的セキュリティ監査と堅牢化 (Security Hardening)** | ブラウザおよびAIパイプラインの安全性を徹底強化：<br>・**非公開コンポーネント保護**: `UniVoiceSettingsActivity` および `UniVoiceTranscriptActivity` を `android:exported="false"` に設定し、他アプリからの不正な設定改変・情報流出を完全遮断。<br>・**WebViewリモートデバッグ制限**: `setWebContentsDebuggingEnabled` をデバッグビルド（`FLAG_DEBUGGABLE`）のみに限定し、リリース版での外部デバッグポートを封鎖。<br>・**JSBridge 入力サニタイズ**: `UniVoiceJSInterface.log()` においてオリジン検証（`isAllowedOrigin`）および最大文字数（1,000文字）制限を適用。<br>・**ディレクトリトラバーサル防御**: バッチダウンロードの動画IDに `sanitizeVideoId` を適用し、不正な相対パス（`../`）を完全排除。<br>・**APIキーのヘッダー認証化**: Gemini API 呼び出しを URL クエリパラメータから HTTP ヘッダー（`x-goog-api-key`）認証へ移行し、URL履歴やログへのキー流出を防止。 |
 | **🛑 ForegroundService クラッシュ（ANR/タイムアウト）完全根絶** | `ForegroundServiceDidNotStartInTimeException` を徹底排除：<br>・`UniVoicePlaybackService.onStartCommand()` で即座に `startForeground()` を確実に実行するアーキテクチャへ改修。<br>・`UniVoiceBrowserActivity.onPause()` での PiP 遷移・終了処理（`isFinishing`, `isChangingConfigurations`）を厳格にガードし、例外発生時もクラッシュを防止。 |
 | **🔙 Android 13/14 予測型戻るジェスチャー完全対応** | 非推奨の `onBackPressed()` オーバーライドから `OnBackPressedDispatcher` へ移行。<br>`android:enableOnBackInvokedCallback="true"` により、Android 13/14 の最新システム予測型戻るジェスチャーに最適化。 |
+| **💎 徹底バグハンティング第2弾・品質向上とゼロクラッシュ堅牢化 (8件の重大リスク完全解消)** | 本番環境を想定した徹底バグハンティング監査に基づき、アプリの信頼性とリソース効率を最高水準へ引き上げ：<br>・**一時ファイルストレージリーク根絶 (`CloudEdgeTtsEngine`)**: 一時MP3ファイルの参照を追跡し、正常再生完了だけでなく中断・エラー・停止・破棄の全経路で `safeDeleteTempFile()` を実行しキャッシュ肥大化を完全防止。<br>・**大容量音声ストリーミング直結 (`CloudEdgeTtsEngine`)**: 全バイト一括オンメモリ展開（`response.body?.bytes()`）を廃止し、レスポンスストリームを一時ファイルへ直結（`byteStream().copyTo(fos)`）してOOM（メモリ枯渇）を根絶。<br>・**AudioTrackマルチスレッド排他制御 (`AudioTrackPlayer`)**: `synchronized(lock)` を適用し、複数コルーチンからの初期化・書き込み・停止・破棄の競合クラッシュを完全防止。<br>・**WakeLock保持上限＆タスクキル連動安全解放 (`UniVoicePlaybackService`)**: WakeLock保持上限を2時間に短縮し、`onTaskRemoved` で確実にサービス停止・WakeLock解放を行い異常バッテリドレインを防止。<br>・**Android 13+ 通知ランタイム権限要求 (`UniVoiceBrowserActivity`)**: `POST_NOTIFICATIONS` の動的権限リクエストランチャーを新設し、バックグラウンド再生通知が正常に表示されるよう対応。<br>・**AAB多言語分割クラッシュ防止 (`app/build.gradle.kts`)**: `bundle { language { enableSplit = false } }` を追加し、海外ロケール端末での日本語リソース欠落を防止。<br>・**ロケール非依存の書式化 (`BatchDownloadPipeline`, `ModelDownloadManager`, `UniVoiceSettingsActivity`)**: `String.format` に明示的な `Locale.US` / `Locale.JAPAN` を指定し、特定ロケール端末での数値フォーマット崩れを防止。<br>・**未配備ASRモデルの安全な例外ハンドリング (`BatchDownloadPipeline`)**: 固定ダミーテキスト返却を廃止し、明示的例外送出による上位フォールバックへ改善。 |
 
 ### v1.0.4 メジャーアップデート内容 (versionCode: 5)
 
@@ -515,6 +516,11 @@ UniVoice Browser は、ブラウザ内部でのAI実行および外部通信を�
 | **混在コンテンツ (Mixed Content) 禁止** | `WebSettings.MIXED_CONTENT_NEVER_ALLOW` | 中間者攻撃（MitM）による改ざんや通信盗聴を排除 |
 | **不正スキーム徹底無効化** | `javascript:`, `file:`, `intent:` 等の外部アプリ遷移スキームをサニタイズ。 | ブラウザ外部の意図しないアプリ起動やXSS攻撃を防止 |
 | **HTTPS通信強制** | `network_security_config.xml` による平文通信禁止（オンプレミス開発用ローカルIPのみ限定許可）。 | 通信路の暗号化を保証 |
+| **ストリーミング直結＆OOM防止** | `CloudEdgeTtsEngine` でレスポンスの全バイト配列メモリ一括展開を廃止し、一時ファイルへ直接ストリーム書き込み。 | 長尺音声合成時や低RAM端末でのメモリ枯渇（OutOfMemoryError）を根絶 |
+| **確実な一時ファイル解放** | `CloudEdgeTtsEngine` 内の全終了イベント（正常終了・停止・エラー・破棄）に `safeDeleteTempFile()` を連動。 | 一時MP3ファイルの残留による端末内部ストレージのサイレント肥大化を防止 |
+| **ネイティブ音声排他制御** | `AudioTrackPlayer` の初期化・再生・停止・解放に `synchronized(lock)` を適用。 | 並行コルーチンからの競合呼び出しによるネイティブ AudioTrack の JNI クラッシュを完全防止 |
+| **タスクキル連動WakeLock解放** | `UniVoicePlaybackService` に2時間上限の安全タイマーおよび `onTaskRemoved` を実装。 | ユーザーのアプリ強制終了時やスリープ放置時の WakeLock リークによる異常バッテリー消費を防止 |
+| **Android 13+ 通知ランタイム権限** | `UniVoiceBrowserActivity` で `POST_NOTIFICATIONS` の動的リクエストランチャーを統合。 | OSバージョンに応じた適切な権限ダイアログを表示し、バックグラウンド再生通知の確実な可視性を保証 |
 
 ---
 
@@ -785,6 +791,17 @@ YouTubeの自動停止（Page Visibility API）を回避し、フォアグラウ
 - 音声文字起こし（ASR）完了直後に、一時ダウンロードされた元の音声ファイルは即座に自動消去されます。
 - 生成された吹き替え音声や翻訳データも、視聴完了の翌日（24時間後）に `CacheCleanupManager` がバックグラウンドで自動消去（GC）します。
 - さらに設定画面の「キャッシュとプライバシー管理」から、ワンタップで即座にすべてのキャッシュファイルを全削除することも可能です。
+
+#### Q15. Android 13以降の端末でバックグラウンド再生通知が表示されません。
+**A**: Android 13 (API 33) 以降では、アプリから通知を表示するために「通知権限（`POST_NOTIFICATIONS`）」の許可が必要です。
+初回起動時またはトップバーの「画面消灯・バックグラウンド再生（`🎵`）」ボタンをタップした際にシステムの通知許可ダイアログが表示されますので、「許可」を選択してください。
+もし拒否してしまった場合は、Android端末の「設定」→「アプリ」→「UniVoice Browser」→「通知」から通知を「許可」に変更してください。
+
+#### Q16. 長時間の連続動画視聴や大容量の音声合成でも端末のメモリやストレージは安全ですか？
+**A**: はい、最新版（v1.1.0）にて徹底的なメモリ・リソース安全対策を適用しています：
+- クラウドTTS（Edge TTS等）の音声合成データは、メモリ上に全バイト配列を一括展開せず、レスポンスストリームを直接キャッシュファイルへ書き込むため、長尺動画でもメモリ枯渇（OOM）が発生しません。
+- 一時音声ファイルは再生完了時だけでなく、動画停止・エラー・画面終了時にも専用の安全クリーンアップ関数（`safeDeleteTempFile`）によって即座に消去されます。
+- アプリをスワイプしてタスクキルした際も `onTaskRemoved` が発火し、システムWakeLockを確実に解放してサービスを終了するため、バックグラウンドでの不要なバッテリー消費も防止されます。
 
 ---
 
