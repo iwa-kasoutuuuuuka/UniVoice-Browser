@@ -36,6 +36,8 @@ class CloudEdgeTtsEngine(
     private var mediaPlayer: MediaPlayer? = null
     private var currentCompletionDeferred: kotlinx.coroutines.CompletableDeferred<Unit>? = null
     private val fallbackSystemTts = AndroidSystemTtsEngine(context)
+    @Volatile
+    private var currentTempFile: File? = null
 
     override suspend fun initialize(): Boolean {
         fallbackSystemTts.initialize()
@@ -44,6 +46,7 @@ class CloudEdgeTtsEngine(
 
     override suspend fun synthesizeAndPlay(text: String, speed: Float, pitch: Float): Result<Unit> {
         return withContext(Dispatchers.IO) {
+            var tempFile: File? = null
             try {
                 // クラウドストリーミング音声合成エンドポイントの呼び出し
                 val encodedText = URLEncoder.encode(text, "UTF-8")
@@ -61,20 +64,33 @@ class CloudEdgeTtsEngine(
                     return@withContext fallbackSystemTts.synthesizeAndPlay(text, speed, pitch)
                 }
 
-                val audioBytes = response.body?.bytes()
-                if (audioBytes == null || audioBytes.isEmpty()) {
+                val body = response.body
+                if (body == null) {
                     return@withContext fallbackSystemTts.synthesizeAndPlay(text, speed, pitch)
                 }
 
-                // 一時ファイルに保存してMediaPlayerで低遅延ストリーム再生
-                val tempFile = File(context.cacheDir, "temp_tts_${System.currentTimeMillis()}.mp3")
-                FileOutputStream(tempFile).use { it.write(audioBytes) }
+                // 一時ファイルにストリーム直結保存（全バイト配列一括メモリ展開を回避しOOMを防止）
+                val file = File(context.cacheDir, "temp_tts_${System.currentTimeMillis()}.mp3")
+                tempFile = file
+                currentTempFile = file
+
+                FileOutputStream(file).use { fos ->
+                    body.byteStream().use { input ->
+                        input.copyTo(fos)
+                    }
+                }
+
+                if (file.length() == 0L) {
+                    safeDeleteTempFile(file)
+                    return@withContext fallbackSystemTts.synthesizeAndPlay(text, speed, pitch)
+                }
 
                 val deferred = kotlinx.coroutines.CompletableDeferred<Unit>()
                 var durationMs = 2500
 
                 withContext(Dispatchers.Main) {
                     stop()
+                    currentTempFile = file
                     currentCompletionDeferred = deferred
                     mediaPlayer = MediaPlayer().apply {
                         val audioAttributes = android.media.AudioAttributes.Builder()
@@ -83,14 +99,14 @@ class CloudEdgeTtsEngine(
                             .build()
                         setAudioAttributes(audioAttributes)
                         setVolume(1.0f, 1.0f)
-                        setDataSource(tempFile.absolutePath)
+                        setDataSource(file.absolutePath)
                         setOnCompletionListener {
-                            tempFile.delete()
+                            safeDeleteTempFile(file)
                             deferred.complete(Unit)
                         }
                         setOnErrorListener { _, what, extra ->
                             Log.e(TAG, "[UniVoiceBrowser] MediaPlayerエラー: what=$what, extra=$extra")
-                            tempFile.delete()
+                            safeDeleteTempFile(file)
                             deferred.complete(Unit)
                             true
                         }
@@ -129,6 +145,7 @@ class CloudEdgeTtsEngine(
                 Result.success(Unit)
             } catch (e: Exception) {
                 Log.e(TAG, "[UniVoiceBrowser] クラウドTTS例外: ${e.message}。フォールバックを実行します", e)
+                safeDeleteTempFile(tempFile)
                 fallbackSystemTts.synthesizeAndPlay(text, speed, pitch)
             }
         }
@@ -146,10 +163,20 @@ class CloudEdgeTtsEngine(
                 release()
             }
             mediaPlayer = null
+            safeDeleteTempFile(currentTempFile)
+            currentTempFile = null
             fallbackSystemTts.stop()
         } catch (e: Exception) {
             Log.w(TAG, "[UniVoiceBrowser] クラウドTTS停止警告: ${e.message}")
         }
+    }
+
+    private fun safeDeleteTempFile(file: File?) {
+        try {
+            if (file != null && file.exists()) {
+                file.delete()
+            }
+        } catch (_: Exception) {}
     }
 
     override fun release() {

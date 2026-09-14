@@ -17,6 +17,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.File
+import java.util.Locale
 import java.util.concurrent.TimeUnit
 
 /**
@@ -202,13 +203,16 @@ class BatchDownloadPipeline(
      * 音声の文字起こし（アプローチ別処理）
      */
     private suspend fun transcribeAudio(audioFile: File, approach: BatchApproach): List<TimedSegment> {
-        // アプローチA（端末内Whisper）/ アプローチB（クラウドASR）
         Log.i(TAG, "[UniVoiceBrowser] 音声文字起こし実行: アプローチ=${approach.titleJapanese}, file=${audioFile.name}")
-        // フォールバック用の基本セグメントリスト返却
-        return listOf(
-            TimedSegment(index = 0, startMs = 0, endMs = 3500, originalText = "Welcome back to our channel."),
-            TimedSegment(index = 1, startMs = 3600, endMs = 7000, originalText = "Today we are going to explore advanced AI translation.")
-        )
+        
+        // 端末内Whisper / クラウドASRモデルが配置されていない場合の正当なエラー通知
+        val whisperModel = File(context.filesDir, "models/whisper_base.onnx")
+        if (!whisperModel.exists() || whisperModel.length() == 0L) {
+            throw IllegalStateException("音声文字起こしモデル(Whisper)が未配置です。YouTubeの字幕(CC)が利用可能な動画でバッチ吹き替えをお試しください。")
+        }
+
+        // 将来的なWhisper連携時のプレースホルダー
+        return emptyList()
     }
 
     /**
@@ -240,7 +244,7 @@ class BatchDownloadPipeline(
         promptBuilder.append("【対象セグメント一覧】\n")
 
         segments.forEach { seg ->
-            promptBuilder.append("・[ID:${seg.index}] 制限時間: ${String.format("%.1f", seg.durationSec)}秒 (推奨最大文字数: ${seg.maxRecommendedJapaneseChars}字) -> \"${seg.originalText}\"\n")
+            promptBuilder.append("・[ID:${seg.index}] 制限時間: ${String.format(Locale.US, "%.1f", seg.durationSec)}秒 (推奨最大文字数: ${seg.maxRecommendedJapaneseChars}字) -> \"${seg.originalText}\"\n")
         }
 
         val requestBodyMap = mapOf(

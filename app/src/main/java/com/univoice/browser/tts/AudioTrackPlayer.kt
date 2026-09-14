@@ -19,11 +19,14 @@ class AudioTrackPlayer(
         private const val TAG = "AudioTrackPlayer"
     }
 
+    private val lock = Any()
     private var audioTrack: AudioTrack? = null
     private val minBufferSize: Int = AudioTrack.getMinBufferSize(sampleRateInHz, channelConfig, audioFormat)
 
     init {
-        initAudioTrack()
+        synchronized(lock) {
+            initAudioTrack()
+        }
     }
 
     private fun initAudioTrack() {
@@ -54,39 +57,45 @@ class AudioTrackPlayer(
     }
 
     /**
-     * PCM 生データをストリーミング再生
+     * PCM 生データをストリーミング再生 (スレッドセーフ排他制御)
      */
     fun playPcmData(pcmData: ByteArray) {
-        try {
-            if (audioTrack == null || audioTrack?.state != AudioTrack.STATE_INITIALIZED) {
-                initAudioTrack()
+        synchronized(lock) {
+            try {
+                if (audioTrack == null || audioTrack?.state != AudioTrack.STATE_INITIALIZED) {
+                    initAudioTrack()
+                }
+                if (audioTrack?.playState != AudioTrack.PLAYSTATE_PLAYING) {
+                    audioTrack?.play()
+                }
+                audioTrack?.write(pcmData, 0, pcmData.size)
+            } catch (e: Exception) {
+                Log.e(TAG, "[UniVoiceBrowser] PCM書き込み再生例外: ${e.message}", e)
             }
-            if (audioTrack?.playState != AudioTrack.PLAYSTATE_PLAYING) {
-                audioTrack?.play()
-            }
-            audioTrack?.write(pcmData, 0, pcmData.size)
-        } catch (e: Exception) {
-            Log.e(TAG, "[UniVoiceBrowser] PCM書き込み再生例外: ${e.message}", e)
         }
     }
 
     fun stop() {
-        try {
-            audioTrack?.pause()
-            audioTrack?.flush()
-        } catch (e: Exception) {
-            Log.e(TAG, "[UniVoiceBrowser] AudioTrack停止エラー: ${e.message}", e)
+        synchronized(lock) {
+            try {
+                audioTrack?.pause()
+                audioTrack?.flush()
+            } catch (e: Exception) {
+                Log.e(TAG, "[UniVoiceBrowser] AudioTrack停止エラー: ${e.message}", e)
+            }
         }
     }
 
     fun release() {
-        try {
-            audioTrack?.stop()
-            audioTrack?.release()
-            audioTrack = null
-            Log.d(TAG, "[UniVoiceBrowser] AudioTrackリソースを解放しました")
-        } catch (e: Exception) {
-            Log.e(TAG, "[UniVoiceBrowser] AudioTrack解放エラー: ${e.message}", e)
+        synchronized(lock) {
+            try {
+                audioTrack?.stop()
+                audioTrack?.release()
+                audioTrack = null
+                Log.d(TAG, "[UniVoiceBrowser] AudioTrackリソースを解放しました")
+            } catch (e: Exception) {
+                Log.e(TAG, "[UniVoiceBrowser] AudioTrack解放エラー: ${e.message}", e)
+            }
         }
     }
 }

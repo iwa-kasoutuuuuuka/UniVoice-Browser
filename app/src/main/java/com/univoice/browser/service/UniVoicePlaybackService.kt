@@ -109,7 +109,7 @@ class UniVoicePlaybackService : Service() {
                     "UniVoice:PlaybackWakeLock"
                 ).apply {
                     setReferenceCounted(false)
-                    acquire(24 * 60 * 60 * 1000L) // 最大24時間
+                    acquire(2 * 60 * 60 * 1000L) // 最大2時間の安全上限（過剰バッテリー消費防止）
                 }
                 Log.d(TAG, "[UniVoiceBrowser] Partial WakeLock を取得しました (画面消灯保護)")
             }
@@ -192,6 +192,12 @@ class UniVoicePlaybackService : Service() {
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
         Log.i(TAG, "[UniVoiceBrowser] バックグラウンド再生フォアグラウンドサービスを停止しました")
+    }
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        Log.i(TAG, "[UniVoiceBrowser] アプリタスクが削除されたため、バックグラウンド再生サービスを正常終了します")
+        stopForegroundService()
     }
 
     override fun onDestroy() {

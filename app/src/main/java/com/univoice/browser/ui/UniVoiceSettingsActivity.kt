@@ -99,7 +99,7 @@ class UniVoiceSettingsActivity : AppCompatActivity() {
                 try {
                     val tts = com.univoice.browser.tts.AndroidSystemTtsEngine(this@UniVoiceSettingsActivity)
                     tts.initialize()
-                    tts.synthesizeAndPlay("UniVoice Browserです。現在の発話速度は${String.format("%.1f", speed)}倍です。", speed = speed)
+                    tts.synthesizeAndPlay("UniVoice Browserです。現在の発話速度は${String.format(java.util.Locale.JAPAN, "%.1f", speed)}倍です。", speed = speed)
                 } catch (_: Exception) {} finally {
                     binding.btnTestSpeechSpeed.isEnabled = true
                 }

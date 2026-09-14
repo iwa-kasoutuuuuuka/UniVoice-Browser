@@ -12,6 +12,7 @@ import java.io.FileOutputStream
 import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.Locale
 
 /**
  * オンデバイスAIモデル（Gemma 2B INT4, VOICEVOX ONNX）の配置状態、
@@ -56,7 +57,7 @@ class ModelDownloadManager private constructor(private val context: Context) {
         if (!file.exists() || file.length() == 0L) return "未ダウンロード (0 MB)"
         val kb = file.length() / 1024.0
         val mb = kb / 1024.0
-        return if (mb < 1.0) String.format("%.1f KB", kb) else String.format("%.1f MB", mb)
+        return if (mb < 1.0) String.format(Locale.US, "%.1f KB", kb) else String.format(Locale.US, "%.1f MB", mb)
     }
 
     /**

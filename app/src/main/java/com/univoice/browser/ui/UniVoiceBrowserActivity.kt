@@ -52,6 +52,23 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
     private var customViewCallback: WebChromeClient.CustomViewCallback? = null
     private var originalOrientation: Int = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
 
+    // Android 13+ (API 33) 通知パーミッション要求ランチャー (BUG-POT-008)
+    private val notificationPermissionLauncher = registerForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (!isGranted) {
+            Log.w(TAG, "[UniVoiceBrowser] POST_NOTIFICATIONS 権限が拒否されました。バックグラウンド再生通知が表示されない可能性があります")
+        }
+    }
+
+    private fun checkAndRequestNotificationPermission() {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                notificationPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
+    }
+
     companion object {
         private const val TAG = "UniVoiceBrowserActivity"
         private const val DEFAULT_HOMEPAGE = "https://m.youtube.com/?hl=ja&gl=JP"
@@ -84,6 +101,7 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
         applyOrientationLayout(resources.configuration.orientation)
         observePipelineStates()
         setupBackPressHandler()
+        checkAndRequestNotificationPermission()
 
         // 初期ページ読み込み (日本語クエリ・ヘッダー付き)
         val initialUrl = intent?.dataString ?: DEFAULT_HOMEPAGE
@@ -155,6 +173,9 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
         binding.btnBackgroundAudio.setOnClickListener {
             val current = configManager.currentSettings.backgroundPlaybackEnabled
             val newState = !current
+            if (newState) {
+                checkAndRequestNotificationPermission()
+            }
             configManager.setBackgroundPlaybackEnabled(newState)
             updateBackgroundAudioButton(newState)
             val msg = if (newState) "画面消灯・バックグラウンド再生を有効にしました" else "バックグラウンド再生を無効にしました"
