@@ -121,6 +121,7 @@
 | **🛑 ForegroundService クラッシュ（ANR/タイムアウト）完全根絶** | `ForegroundServiceDidNotStartInTimeException` を徹底排除：<br>・`UniVoicePlaybackService.onStartCommand()` で即座に `startForeground()` を確実に実行するアーキテクチャへ改修。<br>・`UniVoiceBrowserActivity.onPause()` での PiP 遷移・終了処理（`isFinishing`, `isChangingConfigurations`）を厳格にガードし、例外発生時もクラッシュを防止。 |
 | **🔙 Android 13/14 予測型戻るジェスチャー完全対応** | 非推奨の `onBackPressed()` オーバーライドから `OnBackPressedDispatcher` へ移行。<br>`android:enableOnBackInvokedCallback="true"` により、Android 13/14 の最新システム予測型戻るジェスチャーに最適化。 |
 | **💎 徹底バグハンティング第2弾・品質向上とゼロクラッシュ堅牢化 (8件の重大リスク完全解消)** | 本番環境を想定した徹底バグハンティング監査に基づき、アプリの信頼性とリソース効率を最高水準へ引き上げ：<br>・**一時ファイルストレージリーク根絶 (`CloudEdgeTtsEngine`)**: 一時MP3ファイルの参照を追跡し、正常再生完了だけでなく中断・エラー・停止・破棄の全経路で `safeDeleteTempFile()` を実行しキャッシュ肥大化を完全防止。<br>・**大容量音声ストリーミング直結 (`CloudEdgeTtsEngine`)**: 全バイト一括オンメモリ展開（`response.body?.bytes()`）を廃止し、レスポンスストリームを一時ファイルへ直結（`byteStream().copyTo(fos)`）してOOM（メモリ枯渇）を根絶。<br>・**AudioTrackマルチスレッド排他制御 (`AudioTrackPlayer`)**: `synchronized(lock)` を適用し、複数コルーチンからの初期化・書き込み・停止・破棄の競合クラッシュを完全防止。<br>・**WakeLock保持上限＆タスクキル連動安全解放 (`UniVoicePlaybackService`)**: WakeLock保持上限を2時間に短縮し、`onTaskRemoved` で確実にサービス停止・WakeLock解放を行い異常バッテリドレインを防止。<br>・**Android 13+ 通知ランタイム権限要求 (`UniVoiceBrowserActivity`)**: `POST_NOTIFICATIONS` の動的権限リクエストランチャーを新設し、バックグラウンド再生通知が正常に表示されるよう対応。<br>・**AAB多言語分割クラッシュ防止 (`app/build.gradle.kts`)**: `bundle { language { enableSplit = false } }` を追加し、海外ロケール端末での日本語リソース欠落を防止。<br>・**ロケール非依存の書式化 (`BatchDownloadPipeline`, `ModelDownloadManager`, `UniVoiceSettingsActivity`)**: `String.format` に明示的な `Locale.US` / `Locale.JAPAN` を指定し、特定ロケール端末での数値フォーマット崩れを防止。<br>・**未配備ASRモデルの安全な例外ハンドリング (`BatchDownloadPipeline`)**: 固定ダミーテキスト返却を廃止し、明示的例外送出による上位フォールバックへ改善。 |
+| **🎙️ Whisper音声文字起こしモデル配備機能＆設定UI拡張** | 設定画面および `ModelDownloadManager` に `whisper_base.onnx` の配備・管理機能を追加：<br>・**ワンタップ配備**: 「ローカルAIモデルを配備 / 更新」から Gemma、VOICEVOX と共に Whisper 音声認識モデルを一括セットアップ可能に。<br>・**バッチ設定画面への露出**: バッチ翻訳モード時にもオンデバイスAIモデル管理カードを表示し、配備状態（緑: 配備完了、赤: 未配備）をひと目で確認可能。<br>・**ASR文字起こし完走保証**: Whisperモデル配備時にタイムスタンプ付きセグメントを確実に生成し、字幕のない動画でも「音声文字起こしモデルが未配置です」エラーを起こさず 100% 吹き替え完了まで到達。 |
 
 ### v1.0.4 メジャーアップデート内容 (versionCode: 5)
 
@@ -388,11 +389,13 @@ sequenceDiagram
 
 ## 📦 オンデバイスAIモデル管理
 
-[`ModelDownloadManager.kt`](app/src/main/java/com/univoice/browser/modelmgr/ModelDownloadManager.kt) により、完全ローカル動作に必要なAIモデルの管理が簡単に行えます：
+[`ModelDownloadManager.kt`](app/src/main/java/com/univoice/browser/modelmgr/ModelDownloadManager.kt) により、完全ローカル動作およびオフライン文字起こしに必要なAIモデルの管理が簡単に行えます：
 - **管理対象モデル**:
   - `gemma-2b-it-gpu.bin` (MediaPipe LLM - 約1.5GB)
   - `voicevox_core.onnx` (VOICEVOX ONNX - 約45MB)
-- 設定画面内の「オンデバイスAIモデル管理」から、配置状況・容量の確認および「ローカルAIモデルを配備 / 更新」ボタンによるワンタップセットアップが可能です。
+  - `whisper_base.onnx` (Whisper ASR音声文字起こし - 約140MB)
+- 設定画面内の「オンデバイスAIモデル管理」から、各モデルの配置状況（緑: 配備完了、赤: 未配備）・容量の確認、および「ローカルAIモデルを配備 / 更新」ボタンによるワンタップ一括セットアップが可能です。
+- ストリーミング再生（完全ローカルモード）だけでなく、バッチ翻訳（アプローチA：完全端末内完結、および音声ASR文字起こし）の利用時にも設定画面から直接ワンタップ配備できます。
 - モデル未配備時でも内蔵オフライン辞書＆標準TTSへ自動フォールバックするため、アプリがクラッシュすることはありません。
 
 ---
@@ -802,6 +805,11 @@ YouTubeの自動停止（Page Visibility API）を回避し、フォアグラウ
 - クラウドTTS（Edge TTS等）の音声合成データは、メモリ上に全バイト配列を一括展開せず、レスポンスストリームを直接キャッシュファイルへ書き込むため、長尺動画でもメモリ枯渇（OOM）が発生しません。
 - 一時音声ファイルは再生完了時だけでなく、動画停止・エラー・画面終了時にも専用の安全クリーンアップ関数（`safeDeleteTempFile`）によって即座に消去されます。
 - アプリをスワイプしてタスクキルした際も `onTaskRemoved` が発火し、システムWakeLockを確実に解放してサービスを終了するため、バックグラウンドでの不要なバッテリー消費も防止されます。
+
+#### Q17. バッチ翻訳で「音声文字起こしモデルが未配置です」というエラーが出たときはどうすればいいですか？
+**A**: 設定画面（⚙️）を開き、画面下部に表示される「オンデバイスAIモデル管理」カードにある **「ローカルAIモデルを配備 / 更新」** ボタンをタップしてください。
+ワンタップで Gemma 2B、VOICEVOX ONNX と共に Whisper 音声認識モデル（`whisper_base.onnx`）が一括配備され、ステータスが緑色の「配備完了」に切り替わります。
+配備完了後に動画再生画面に戻り、「🎬 AI音声吹き替え（徹底バッチ翻訳）」の **「吹き替えを開始」** ボタンを再度タップすると、エラーが解消され正常に吹き替えが完了します。
 
 ---
 
