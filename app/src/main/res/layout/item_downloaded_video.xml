@@ -1,0 +1,215 @@
+<?xml version="1.0" encoding="utf-8"?>
+<com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginBottom="10dp"
+    app:cardBackgroundColor="@color/surface"
+    app:cardCornerRadius="12dp"
+    app:cardElevation="2dp"
+    app:strokeColor="@color/divider_color"
+    app:strokeWidth="1dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="12dp">
+
+        <!-- 上段: タイトル＆ステータスバッジ -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/tvVideoTitle"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:ellipsize="end"
+                android:maxLines="2"
+                android:textColor="@color/on_surface"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                tools:text="【講義】量子コンピューティング入門 (2026年最新動向)" />
+
+            <TextView
+                android:id="@+id/tvCompletionBadge"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:background="@drawable/bg_status_badge"
+                android:paddingStart="8dp"
+                android:paddingTop="2dp"
+                android:paddingEnd="8dp"
+                android:paddingBottom="2dp"
+                android:textColor="@color/accent_green"
+                android:textSize="11sp"
+                android:textStyle="bold"
+                tools:text="完了 ✓" />
+        </LinearLayout>
+
+        <!-- メタ情報 (URL・セグメント数・作成日時) -->
+        <TextView
+            android:id="@+id/tvMetaInfo"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:textColor="@color/on_surface_variant"
+            android:textSize="11sp"
+            tools:text="動画ID: dQw4w9WgXcQ • 42セグメント • 2026/09/15" />
+
+        <!-- 3要素個別進捗エリア -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:background="@color/surface_variant"
+            android:orientation="vertical"
+            android:padding="8dp">
+
+            <!-- 1. 音声ダウンロード＆文字起こし -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="🎙️ 音声ダウンロード / 文字起こし"
+                    android:textColor="@color/on_surface"
+                    android:textSize="11sp" />
+
+                <TextView
+                    android:id="@+id/tvItemAudioPercent"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="@color/primary"
+                    android:textSize="11sp"
+                    android:textStyle="bold"
+                    tools:text="100%" />
+            </LinearLayout>
+
+            <ProgressBar
+                android:id="@+id/pbItemAudioProgress"
+                style="?android:attr/progressBarStyleHorizontal"
+                android:layout_width="match_parent"
+                android:layout_height="4dp"
+                android:layout_marginTop="2dp"
+                android:progress="0"
+                android:progressTint="@color/primary" />
+
+            <!-- 2. AI尺合わせ翻訳 -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="🌐 AI尺合わせ全編翻訳"
+                    android:textColor="@color/on_surface"
+                    android:textSize="11sp" />
+
+                <TextView
+                    android:id="@+id/tvItemTransPercent"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="@color/accent_amber"
+                    android:textSize="11sp"
+                    android:textStyle="bold"
+                    tools:text="100%" />
+            </LinearLayout>
+
+            <ProgressBar
+                android:id="@+id/pbItemTransProgress"
+                style="?android:attr/progressBarStyleHorizontal"
+                android:layout_width="match_parent"
+                android:layout_height="4dp"
+                android:layout_marginTop="2dp"
+                android:progress="0"
+                android:progressTint="@color/accent_amber" />
+
+            <!-- 3. 映像ダウンロード＆日本語音声合成 -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="🎬 映像キャッシュ / 日本語音声合成"
+                    android:textColor="@color/on_surface"
+                    android:textSize="11sp" />
+
+                <TextView
+                    android:id="@+id/tvItemVideoPercent"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="@color/accent_green"
+                    android:textSize="11sp"
+                    android:textStyle="bold"
+                    tools:text="100%" />
+            </LinearLayout>
+
+            <ProgressBar
+                android:id="@+id/pbItemVideoProgress"
+                style="?android:attr/progressBarStyleHorizontal"
+                android:layout_width="match_parent"
+                android:layout_height="4dp"
+                android:layout_marginTop="2dp"
+                android:progress="0"
+                android:progressTint="@color/accent_green" />
+        </LinearLayout>
+
+        <!-- アクションボタン群 (再生 & 削除) -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:gravity="end|center_vertical"
+            android:orientation="horizontal">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnDeleteVideo"
+                style="@style/Widget.MaterialComponents.Button.TextButton"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:layout_marginEnd="8dp"
+                android:insetTop="0dp"
+                android:insetBottom="0dp"
+                android:text="キャッシュ削除"
+                android:textColor="@color/error_red"
+                android:textSize="12sp" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnPlayVideo"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:backgroundTint="@color/primary"
+                android:insetTop="0dp"
+                android:insetBottom="0dp"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp"
+                android:text="▶ 日本語版再生"
+                android:textColor="@color/on_primary"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                app:cornerRadius="18dp" />
+        </LinearLayout>
+    </LinearLayout>
+</com.google.android.material.card.MaterialCardView>

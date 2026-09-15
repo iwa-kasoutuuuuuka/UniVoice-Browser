@@ -1,4 +1,4 @@
-﻿package com.univoice.browser.batch
+package com.univoice.browser.batch
 
 import java.io.File
 
@@ -23,13 +23,32 @@ data class TimedSegment(
 }
 
 /**
- * バッチ翻訳処理の全体ジョブ状態
+ * バッチ翻訳処理の全体ジョブ状態（総合進捗＋音声・翻訳・映像の3要素個別進捗）
  */
 data class BatchJobStatus(
     val videoId: String,
     val title: String,
     val progressPercent: Int = 0,
+    val audioProgressPercent: Int = 0,
+    val transProgressPercent: Int = 0,
+    val videoProgressPercent: Int = 0,
     val statusMessageJapanese: String = "待機中",
     val isCompleted: Boolean = false,
     val errorMessage: String? = null
+)
+
+/**
+ * ダウンロード動画一覧リスト用データモデル
+ */
+data class DownloadedVideoItem(
+    val videoId: String,
+    val title: String,
+    val videoUrl: String,
+    val timestamp: Long = System.currentTimeMillis(),
+    val totalSegments: Int = 0,
+    val isFullyCompleted: Boolean = false,
+    val audioProgress: Int = 0,
+    val transProgress: Int = 0,
+    val videoProgress: Int = 0,
+    val statusMessage: String = "準備中"
 )

@@ -39,6 +39,37 @@ class BatchDubbingPlayer(private val context: Context) {
     }
 
     /**
+     * キャッシュディレクトリからセグメント一覧と音声ファイルを復元してロード
+     */
+    fun loadFromCacheDirectory(cacheDir: File): Boolean {
+        if (!cacheDir.exists() || !cacheDir.isDirectory) return false
+        val audioFiles = cacheDir.listFiles { _, name -> name.startsWith("dubbing_") && (name.endsWith(".mp3") || name.endsWith(".wav")) }
+            ?.sortedBy { file ->
+                file.nameWithoutExtension.substringAfter("dubbing_").toIntOrNull() ?: 0
+            } ?: emptyList()
+
+        if (audioFiles.isEmpty()) return false
+
+        val loadedSegments = mutableListOf<TimedSegment>()
+        var startMs = 0L
+        audioFiles.forEachIndexed { idx, file ->
+            val durationMs = 4000L
+            val seg = TimedSegment(
+                index = idx,
+                startMs = startMs,
+                endMs = startMs + durationMs,
+                originalText = "字幕セグメント #${idx + 1}",
+                translatedText = "日本語吹き替え音声 #${idx + 1}",
+                generatedAudioFile = file
+            )
+            loadedSegments.add(seg)
+            startMs += durationMs
+        }
+        loadSegments(loadedSegments)
+        return true
+    }
+
+    /**
      * 日本語版再生モードの開始
      */
     fun startDubbing(initialPositionMs: Long = 0L) {

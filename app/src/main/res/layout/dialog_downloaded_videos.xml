@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="@color/background"
+    android:orientation="vertical"
+    android:padding="16dp">
+
+    <!-- ダイアログヘッダー -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="📥 ダウンロード動画リスト"
+            android:textColor="@color/on_surface"
+            android:textSize="18sp"
+            android:textStyle="bold" />
+
+        <ImageButton
+            android:id="@+id/btnCloseDialog"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="閉じる"
+            android:src="@drawable/ic_close"
+            app:tint="@color/on_surface" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/tvDialogSubtitle"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
+        android:layout_marginBottom="12dp"
+        android:text="完全に終わった動画をタップして日本語版で再生できます"
+        android:textColor="@color/on_surface_variant"
+        android:textSize="12sp" />
+
+    <!-- 空状態メッセージ -->
+    <TextView
+        android:id="@+id/tvEmptyDownloadedList"
+        android:layout_width="match_parent"
+        android:layout_height="120dp"
+        android:gravity="center"
+        android:text="ダウンロード中の動画はありません。\n動画視聴ページで「吹き替えを開始」を実行するとここに追加されます。"
+        android:textColor="@color/on_surface_variant"
+        android:textSize="13sp"
+        android:visibility="gone"
+        tools:visibility="visible" />
+
+    <!-- 動画一覧 RecyclerView -->
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/rvDownloadedVideos"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:maxHeight="420dp"
+        tools:listitem="@layout/item_downloaded_video" />
+
+</LinearLayout>

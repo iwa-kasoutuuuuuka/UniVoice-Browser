@@ -17,7 +17,12 @@ import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.content.pm.ActivityInfo
+import android.view.LayoutInflater
+import android.view.ViewGroup
 import android.widget.FrameLayout
+import android.widget.ImageButton
+import android.widget.ProgressBar
+import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
@@ -179,6 +184,10 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
 
         binding.btnTranscript.setOnClickListener {
             startActivity(Intent(this, UniVoiceTranscriptActivity::class.java))
+        }
+
+        binding.btnDownloadedList.setOnClickListener {
+            showDownloadedVideosDialog()
         }
 
         binding.btnMuteToggle.setOnClickListener {
@@ -842,6 +851,16 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
                     binding.pbBatchProgress.progress = status.progressPercent
                     binding.tvBatchProgressText.text = status.statusMessageJapanese
 
+                    // 3要素個別進捗の反映
+                    binding.pbAudioProgress.progress = status.audioProgressPercent
+                    binding.tvAudioProgressText.text = "${status.audioProgressPercent}%"
+
+                    binding.pbTransProgress.progress = status.transProgressPercent
+                    binding.tvTransProgressText.text = "${status.transProgressPercent}%"
+
+                    binding.pbVideoProgress.progress = status.videoProgressPercent
+                    binding.tvVideoProgressText.text = "${status.videoProgressPercent}%"
+
                     if (status.isCompleted) {
                         binding.btnStartBatchDubbing.isEnabled = true
                         binding.btnStartBatchDubbing.text = "▶ 日本語版再生"
@@ -1089,6 +1108,168 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
             // 通常画面復帰時にナビゲーションバーを復元
             binding.layoutNavBar.visibility = View.VISIBLE
             binding.cardSubtitleOverlay.alpha = 1.0f
+        }
+    }
+
+    /**
+     * ダウンロード動画リストダイアログを表示
+     */
+    private fun showDownloadedVideosDialog() {
+        val repo = com.univoice.browser.batch.DownloadedVideoRepository.getInstance(this)
+        val dialogView = layoutInflater.inflate(R.layout.dialog_downloaded_videos, null)
+        val dialog = com.google.android.material.bottomsheet.BottomSheetDialog(this)
+        dialog.setContentView(dialogView)
+
+        val rv = dialogView.findViewById<androidx.recyclerview.widget.RecyclerView>(R.id.rvDownloadedVideos)
+        val tvEmpty = dialogView.findViewById<TextView>(R.id.tvEmptyDownloadedList)
+        val btnClose = dialogView.findViewById<ImageButton>(R.id.btnCloseDialog)
+
+        btnClose.setOnClickListener { dialog.dismiss() }
+        rv.layoutManager = androidx.recyclerview.widget.LinearLayoutManager(this)
+
+        val adapter = DownloadedVideoAdapter(
+            onPlayClicked = { item ->
+                dialog.dismiss()
+                playDownloadedVideoDirectly(item)
+            },
+            onDeleteClicked = { item ->
+                repo.deleteItem(item.videoId)
+                android.widget.Toast.makeText(this, "キャッシュを削除しました: ${item.title}", android.widget.Toast.LENGTH_SHORT).show()
+            }
+        )
+        rv.adapter = adapter
+
+        lifecycleScope.launch {
+            repo.itemsFlow.collectLatest { list ->
+                runOnUiThread {
+                    adapter.submitList(list)
+                    if (list.isEmpty()) {
+                        tvEmpty.visibility = View.VISIBLE
+                        rv.visibility = View.GONE
+                    } else {
+                        tvEmpty.visibility = View.GONE
+                        rv.visibility = View.VISIBLE
+                    }
+                }
+            }
+        }
+
+        dialog.show()
+    }
+
+    /**
+     * ダウンロード完了動画をリストから直接再生
+     */
+    private fun playDownloadedVideoDirectly(item: com.univoice.browser.batch.DownloadedVideoItem) {
+        val targetUrl = item.videoUrl.ifBlank { "https://www.youtube.com/watch?v=${item.videoId}" }
+        Log.i(TAG, "[UniVoiceBrowser] ダウンロードリストから再生開始: ${item.title} ($targetUrl)")
+
+        // 該当動画のキャッシュディレクトリからセグメント音声をロード
+        val cacheDir = java.io.File(cacheDir, "batch_dubbing_cache/${item.videoId}")
+        val loaded = batchPlayer?.loadFromCacheDirectory(cacheDir) ?: false
+
+        if (loaded) {
+            binding.btnStartBatchDubbing.isEnabled = true
+            binding.btnStartBatchDubbing.text = "⏸ 一時停止"
+            binding.btnStartBatchDubbing.setBackgroundColor(android.graphics.Color.parseColor("#2E7D32"))
+            binding.tvTranslatedSubtitle.text = "▶ 日本語吹き替え版を再生中: ${item.title}"
+        }
+
+        // URLが現在の動画と異なる場合はWebView遷移
+        if (binding.wvBrowser.url != targetUrl) {
+            loadInputUrl(targetUrl)
+        }
+
+        // 再生開始をトリガー
+        binding.wvBrowser.evaluateJavascript("""
+            (function() {
+                const v = document.querySelector('video');
+                if (v) {
+                    v.muted = true;
+                    v.currentTime = 0;
+                    if (v.paused) v.play();
+                    return 0;
+                }
+                return 0;
+            })();
+        """.trimIndent()) {
+            if (loaded) {
+                batchPlayer?.startDubbing(0L)
+            }
+        }
+    }
+
+    // --- ダウンロード動画リスト用 Adapter ---
+    private class DownloadedVideoAdapter(
+        private val onPlayClicked: (com.univoice.browser.batch.DownloadedVideoItem) -> Unit,
+        private val onDeleteClicked: (com.univoice.browser.batch.DownloadedVideoItem) -> Unit
+    ) : androidx.recyclerview.widget.ListAdapter<com.univoice.browser.batch.DownloadedVideoItem, DownloadedVideoAdapter.ViewHolder>(DiffCallback) {
+
+        object DiffCallback : androidx.recyclerview.widget.DiffUtil.ItemCallback<com.univoice.browser.batch.DownloadedVideoItem>() {
+            override fun areItemsTheSame(oldItem: com.univoice.browser.batch.DownloadedVideoItem, newItem: com.univoice.browser.batch.DownloadedVideoItem) =
+                oldItem.videoId == newItem.videoId
+
+            override fun areContentsTheSame(oldItem: com.univoice.browser.batch.DownloadedVideoItem, newItem: com.univoice.browser.batch.DownloadedVideoItem) =
+                oldItem == newItem
+        }
+
+        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
+            val view = LayoutInflater.from(parent.context).inflate(R.layout.item_downloaded_video, parent, false)
+            return ViewHolder(view)
+        }
+
+        override fun onBindViewHolder(holder: ViewHolder, position: Int) {
+            holder.bind(getItem(position))
+        }
+
+        inner class ViewHolder(itemView: View) : androidx.recyclerview.widget.RecyclerView.ViewHolder(itemView) {
+            private val tvTitle: TextView = itemView.findViewById(R.id.tvVideoTitle)
+            private val tvBadge: TextView = itemView.findViewById(R.id.tvCompletionBadge)
+            private val tvMeta: TextView = itemView.findViewById(R.id.tvMetaInfo)
+
+            private val tvAudioPercent: TextView = itemView.findViewById(R.id.tvItemAudioPercent)
+            private val pbAudio: ProgressBar = itemView.findViewById(R.id.pbItemAudioProgress)
+
+            private val tvTransPercent: TextView = itemView.findViewById(R.id.tvItemTransPercent)
+            private val pbTrans: ProgressBar = itemView.findViewById(R.id.pbItemTransProgress)
+
+            private val tvVideoPercent: TextView = itemView.findViewById(R.id.tvItemVideoPercent)
+            private val pbVideo: ProgressBar = itemView.findViewById(R.id.pbItemVideoProgress)
+
+            private val btnPlay: com.google.android.material.button.MaterialButton = itemView.findViewById(R.id.btnPlayVideo)
+            private val btnDelete: com.google.android.material.button.MaterialButton = itemView.findViewById(R.id.btnDeleteVideo)
+
+            fun bind(item: com.univoice.browser.batch.DownloadedVideoItem) {
+                tvTitle.text = item.title
+                tvMeta.text = "動画ID: ${item.videoId} • ${if (item.totalSegments > 0) "${item.totalSegments}セグメント" else item.statusMessage}"
+
+                tvAudioPercent.text = "${item.audioProgress}%"
+                pbAudio.progress = item.audioProgress
+
+                tvTransPercent.text = "${item.transProgress}%"
+                pbTrans.progress = item.transProgress
+
+                tvVideoPercent.text = "${item.videoProgress}%"
+                pbVideo.progress = item.videoProgress
+
+                if (item.isFullyCompleted) {
+                    tvBadge.text = "完了 ✓"
+                    tvBadge.setTextColor(android.graphics.Color.parseColor("#10B981"))
+                    btnPlay.isEnabled = true
+                    btnPlay.text = "▶ 日本語版再生"
+                    btnPlay.alpha = 1.0f
+                } else {
+                    val avgProgress = (item.audioProgress + item.transProgress + item.videoProgress) / 3
+                    tvBadge.text = "処理中 ${avgProgress}%"
+                    tvBadge.setTextColor(android.graphics.Color.parseColor("#F59E0B"))
+                    btnPlay.isEnabled = false
+                    btnPlay.text = "処理中..."
+                    btnPlay.alpha = 0.5f
+                }
+
+                btnPlay.setOnClickListener { onPlayClicked(item) }
+                btnDelete.setOnClickListener { onDeleteClicked(item) }
+            }
         }
     }
 
