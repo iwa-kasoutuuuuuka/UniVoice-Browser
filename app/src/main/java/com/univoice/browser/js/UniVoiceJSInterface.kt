@@ -15,7 +15,8 @@ class UniVoiceJSInterface(
     private val onVideoStateChangedCallback: (isPlaying: Boolean, currentTimeMs: Long) -> Unit,
     private val onAudioSuppressedCallback: (Boolean) -> Unit,
     private val onCaptionStateChangedCallback: (Boolean) -> Unit = {},
-    private val onVideoNavigatedCallback: (url: String?, videoId: String?) -> Unit = { _, _ -> }
+    private val onVideoNavigatedCallback: (url: String?, videoId: String?) -> Unit = { _, _ -> },
+    private val onBatchCaptionsExtractedCallback: (String) -> Unit = {}
 ) {
 
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -112,6 +113,19 @@ class UniVoiceJSInterface(
         Log.d(TAG, "[UniVoiceBrowser] 字幕ステータス検知: isEnabled=$isEnabled")
         mainHandler.post {
             onCaptionStateChangedCallback(isEnabled)
+        }
+    }
+
+    /**
+     * バッチ翻訳用: YouTube動画の全編字幕セグメント一括JSONデータを受信
+     */
+    @JavascriptInterface
+    fun onBatchCaptionsExtracted(jsonPayload: String?) {
+        if (!isOriginAuthorized()) return
+        if (jsonPayload.isNullOrBlank()) return
+        Log.i(TAG, "[UniVoiceBrowser] バッチ用字幕抽出データ受信: ${jsonPayload.length} bytes")
+        mainHandler.post {
+            onBatchCaptionsExtractedCallback(jsonPayload)
         }
     }
 

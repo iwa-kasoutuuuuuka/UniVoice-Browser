@@ -74,6 +74,25 @@ object AdBlockEngine {
             return false
         }
 
+        // 1. 高速パス: URL文字列に対する高速部分一致判定 (Uri.parseの重い処理を回避)
+        if (!lowerUrl.contains("doubleclick") &&
+            !lowerUrl.contains("googlesyndication") &&
+            !lowerUrl.contains("google-analytics") &&
+            !lowerUrl.contains("adservice.google") &&
+            !lowerUrl.contains("stats/ads") &&
+            !lowerUrl.contains("/pagead/") &&
+            !lowerUrl.contains("/ptracking") &&
+            !lowerUrl.contains("admob") &&
+            !lowerUrl.contains("criteo") &&
+            !lowerUrl.contains("taboola") &&
+            !lowerUrl.contains("outbrain") &&
+            !lowerUrl.contains("scorecardresearch") &&
+            !lowerUrl.contains("amazon-adsystem") &&
+            !lowerUrl.contains("ads.youtube.com")
+        ) {
+            return false
+        }
+
         try {
             val uri = Uri.parse(url)
             val host = uri.host?.lowercase() ?: ""

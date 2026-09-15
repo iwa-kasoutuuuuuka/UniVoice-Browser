@@ -6,6 +6,8 @@ import android.util.Log
 import com.univoice.browser.model.TtsEngineType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
@@ -33,6 +35,7 @@ class CloudEdgeTtsEngine(
         .readTimeout(8, TimeUnit.SECONDS)
         .build()
 
+    private val synthesisMutex = Mutex()
     private var mediaPlayer: MediaPlayer? = null
     private var currentCompletionDeferred: kotlinx.coroutines.CompletableDeferred<Unit>? = null
     private val fallbackSystemTts = AndroidSystemTtsEngine(context, voiceGender)
@@ -46,7 +49,8 @@ class CloudEdgeTtsEngine(
     }
 
     override suspend fun synthesizeAndPlay(text: String, speed: Float, pitch: Float): Result<Unit> {
-        return withContext(Dispatchers.IO) {
+        return synthesisMutex.withLock {
+            withContext(Dispatchers.IO) {
             var tempFile: File? = null
             fallbackSystemTts.voiceGender = voiceGender
             try {
@@ -159,6 +163,7 @@ class CloudEdgeTtsEngine(
                 safeDeleteTempFile(tempFile)
                 fallbackSystemTts.synthesizeAndPlay(text, speed, pitch)
             }
+        }
         }
     }
 

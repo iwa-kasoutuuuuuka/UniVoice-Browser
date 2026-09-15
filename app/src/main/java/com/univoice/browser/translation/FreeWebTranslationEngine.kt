@@ -4,6 +4,7 @@ import android.util.Log
 import com.univoice.browser.model.TranslationEngineType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
@@ -14,7 +15,7 @@ import java.util.regex.Pattern
 
 /**
  * APIキー不要で誰でも即座に利用可能な高速Web翻訳エンジン
- * Google Translate Mobile Web + MyMemory API の2段構えで、英語字幕を高品質な日本語へリアルタイム変換
+ * Google GTX + Mobile Web + MyMemory API の多重構成で、英語字幕を高品質な日本語へリアルタイム変換
  */
 class FreeWebTranslationEngine : TranslationEngine {
 
@@ -26,8 +27,8 @@ class FreeWebTranslationEngine : TranslationEngine {
     }
 
     private val httpClient: OkHttpClient = OkHttpClient.Builder()
-        .connectTimeout(4, TimeUnit.SECONDS)
-        .readTimeout(6, TimeUnit.SECONDS)
+        .connectTimeout(3, TimeUnit.SECONDS)
+        .readTimeout(4, TimeUnit.SECONDS)
         .retryOnConnectionFailure(true)
         .build()
 
@@ -61,100 +62,108 @@ class FreeWebTranslationEngine : TranslationEngine {
                 return@withContext Result.success(it)
             }
 
-            // 1. Google GTX API (高速・高品質・CAPTCHAフリー・JSON形式)
-            try {
-                val encoded = URLEncoder.encode(clean, "UTF-8")
-                val googleUrl = "https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=ja&dt=t&q=$encoded"
+            val timedResult = withTimeoutOrNull(4500L) {
+                // 1. Google GTX API (高速・高品質・CAPTCHAフリー・JSON形式)
+                try {
+                    val encoded = URLEncoder.encode(clean, "UTF-8")
+                    val googleUrl = "https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=ja&dt=t&q=$encoded"
 
-                val request = Request.Builder()
-                    .url(googleUrl)
-                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36")
-                    .build()
+                    val request = Request.Builder()
+                        .url(googleUrl)
+                        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36")
+                        .build()
 
-                httpClient.newCall(request).execute().use { response ->
-                    if (response.isSuccessful) {
-                        val body = response.body?.string() ?: ""
-                        if (body.startsWith("[")) {
-                            val jsonArray = org.json.JSONArray(body)
-                            val sentencesArray = jsonArray.optJSONArray(0)
-                            if (sentencesArray != null && sentencesArray.length() > 0) {
-                                val sb = StringBuilder()
-                                for (i in 0 until sentencesArray.length()) {
-                                    val item = sentencesArray.optJSONArray(i)
-                                    val part = item?.optString(0) ?: ""
-                                    sb.append(part)
+                    httpClient.newCall(request).execute().use { response ->
+                        if (response.isSuccessful) {
+                            val body = response.body?.string() ?: ""
+                            if (body.startsWith("[")) {
+                                val jsonArray = org.json.JSONArray(body)
+                                val sentencesArray = jsonArray.optJSONArray(0)
+                                if (sentencesArray != null && sentencesArray.length() > 0) {
+                                    val sb = StringBuilder()
+                                    for (i in 0 until sentencesArray.length()) {
+                                        val item = sentencesArray.optJSONArray(i)
+                                        val part = item?.optString(0) ?: ""
+                                        sb.append(part)
+                                    }
+                                    val rawJa = sb.toString().trim()
+                                    val unescaped = unescapeHtml(rawJa).trimStart('.', '。', ' ', ',').trim()
+                                    if (unescaped.isNotBlank() && isSubstantiallyJapanese(unescaped)) {
+                                        Log.d(TAG, "[UniVoiceBrowser] Google GTX翻訳成功: [$clean] -> [$unescaped]")
+                                        localMemoryCache[clean] = unescaped
+                                        return@withTimeoutOrNull unescaped
+                                    }
                                 }
-                                val rawJa = sb.toString().trim()
-                                val unescaped = unescapeHtml(rawJa).trimStart('.', '。', ' ', ',').trim()
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "[UniVoiceBrowser] Google GTX翻訳例外: ${e.message}。MyMemoryへフォールバックします")
+                }
+
+                // 2. MyMemory Translation API
+                try {
+                    val encoded = URLEncoder.encode(clean, "UTF-8")
+                    val myMemoryUrl = "https://api.mymemory.translated.net/get?q=$encoded&langpair=en|ja"
+
+                    val request = Request.Builder()
+                        .url(myMemoryUrl)
+                        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+                        .build()
+
+                    httpClient.newCall(request).execute().use { response ->
+                        if (response.isSuccessful) {
+                            val body = response.body?.string() ?: ""
+                            val json = JSONObject(body)
+                            val trans = json.optJSONObject("responseData")?.optString("translatedText")?.trim() ?: ""
+                            if (trans.isNotBlank() && !trans.startsWith("MYMEMORY WARNING")) {
+                                val unescaped = unescapeHtml(trans).trimStart('.', '。', ' ', ',').trim()
                                 if (unescaped.isNotBlank() && isSubstantiallyJapanese(unescaped)) {
-                                    Log.d(TAG, "[UniVoiceBrowser] Google GTX翻訳成功: [$clean] -> [$unescaped]")
+                                    Log.d(TAG, "[UniVoiceBrowser] MyMemory翻訳成功: [$clean] -> [$unescaped]")
                                     localMemoryCache[clean] = unescaped
-                                    return@withContext Result.success(unescaped)
+                                    return@withTimeoutOrNull unescaped
                                 }
                             }
                         }
                     }
+                } catch (e: Exception) {
+                    Log.w(TAG, "[UniVoiceBrowser] MyMemory翻訳例外: ${e.message}")
                 }
-            } catch (e: Exception) {
-                Log.w(TAG, "[UniVoiceBrowser] Google GTX翻訳例外: ${e.message}。MyMemoryへフォールバックします")
-            }
 
-            // 2. Google Translate Mobile Web (第2フォールバック)
-            try {
-                val encoded = URLEncoder.encode(clean, "UTF-8")
-                val googleUrl = "https://translate.google.com/m?sl=auto&tl=ja&q=$encoded"
+                // 3. Google Translate Mobile Web スクレイピングフォールバック
+                try {
+                    val encoded = URLEncoder.encode(clean, "UTF-8")
+                    val mWebUrl = "https://translate.google.com/m?sl=auto&tl=ja&q=$encoded"
 
-                val request = Request.Builder()
-                    .url(googleUrl)
-                    .header("User-Agent", "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36")
-                    .build()
+                    val request = Request.Builder()
+                        .url(mWebUrl)
+                        .header("User-Agent", "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36")
+                        .build()
 
-                httpClient.newCall(request).execute().use { response ->
-                    if (response.isSuccessful) {
-                        val html = response.body?.string() ?: ""
-                        val matcher = RESULT_CONTAINER_PATTERN.matcher(html)
-                        if (matcher.find()) {
-                            val rawJa = matcher.group(1)?.trim() ?: ""
-                            val unescaped = unescapeHtml(rawJa).trimStart('.', '。', ' ', ',').trim()
-                            if (unescaped.isNotBlank() && isSubstantiallyJapanese(unescaped)) {
-                                Log.d(TAG, "[UniVoiceBrowser] Google Mobile Web翻訳成功: [$clean] -> [$unescaped]")
-                                localMemoryCache[clean] = unescaped
-                                return@withContext Result.success(unescaped)
+                    httpClient.newCall(request).execute().use { response ->
+                        if (response.isSuccessful) {
+                            val html = response.body?.string() ?: ""
+                            val matcher = RESULT_CONTAINER_PATTERN.matcher(html)
+                            if (matcher.find()) {
+                                val rawText = matcher.group(1) ?: ""
+                                val unescaped = unescapeHtml(rawText).trimStart('.', '。', ' ', ',').trim()
+                                if (unescaped.isNotBlank() && isSubstantiallyJapanese(unescaped)) {
+                                    Log.d(TAG, "[UniVoiceBrowser] Google Web翻訳成功: [$clean] -> [$unescaped]")
+                                    localMemoryCache[clean] = unescaped
+                                    return@withTimeoutOrNull unescaped
+                                }
                             }
                         }
                     }
+                } catch (e: Exception) {
+                    Log.e(TAG, "[UniVoiceBrowser] Google Web翻訳例外: ${e.message}")
                 }
-            } catch (e: Exception) {
-                Log.w(TAG, "[UniVoiceBrowser] Google Web翻訳例外: ${e.message}。MyMemoryへフォールバックします")
+
+                null
             }
 
-            // 3. MyMemory 高速翻訳API (第3フォールバック)
-            try {
-                val encoded = URLEncoder.encode(clean, "UTF-8")
-                val myMemoryUrl = "https://api.mymemory.translated.net/get?q=$encoded&langpair=en|ja&de=univoice.browser@gmail.com"
-
-                val request = Request.Builder()
-                    .url(myMemoryUrl)
-                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
-                    .build()
-
-                httpClient.newCall(request).execute().use { response ->
-                    if (response.isSuccessful) {
-                        val body = response.body?.string() ?: ""
-                        val json = JSONObject(body)
-                        val trans = json.optJSONObject("responseData")?.optString("translatedText")?.trim() ?: ""
-                        if (trans.isNotBlank() && !trans.startsWith("MYMEMORY WARNING")) {
-                            val unescaped = unescapeHtml(trans).trimStart('.', '。', ' ', ',').trim()
-                            if (unescaped.isNotBlank() && isSubstantiallyJapanese(unescaped)) {
-                                Log.d(TAG, "[UniVoiceBrowser] MyMemory翻訳成功: [$clean] -> [$unescaped]")
-                                localMemoryCache[clean] = unescaped
-                                return@withContext Result.success(unescaped)
-                            }
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "[UniVoiceBrowser] MyMemory翻訳例外: ${e.message}")
+            if (timedResult != null) {
+                return@withContext Result.success(timedResult)
             }
 
             // 4. ローカル定型フレーズ辞書

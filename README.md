@@ -105,7 +105,19 @@
 
 ## 🔄 最近のアップデート・更新履歴 (Changelog)
 
-### 【最新版】v1.1.0 メジャーアップデート内容 (versionCode: 6)
+### 【最新版】v1.1.1 安定性・同期・パフォーマンス強化アップデート内容 (versionCode: 7)
+
+| 項目 | 改善・修正の詳細内容 |
+| :--- | :--- |
+| **🚀 JavaScript 字幕先行取得の未定義参照クラッシュ完全解消 (BUG-001)** | `YouTubeScriptInjector.kt` において、`sanitizeCaption` / `flushCaption` よりも前に `prefetchCaptionTrack` が配置されていたことによる `ReferenceError` を修正。<br>字幕トラック（`timedtext` / `fmt=json3`）の先行取得が初期化直後から確実に稼働し、長大先読みバッファが途切れることなく機能。 |
+| **🎬 バッチ徹底翻訳のYouTube既存字幕一括抽出連携 (BUG-002)** | 「吹き替えを開始」実行時、ページ内の字幕トラックを直接抽出する JavaScript API（`window.__univoice_extract_batch_captions`）を新設。<br>YouTube上に字幕が存在する場合は、重い音声ダウンロードやWhisperモデル不要で一括抽出し、超高速かつAPI消費ゼロ/完全無料で尺合わせバッチ吹き替えを生成可能に。 |
+| **🔙 戻るキー・SPA動画切替時のバッチ再生状態リセット (BUG-004)** | 動画視聴中の戻る操作（`OnBackPressedCallback`）および次の動画へのSPA画面遷移（`onVideoNavigatedCallback`）時に、前動画のバッチジョブ（`batchJob?.cancel()`）および音声再生プレイヤー（`batchPlayer?.stopDubbing()`、`completedBatchSegments = null`）を即座に破棄・リセット。意図しない前動画の音声残留を完全根絶。 |
+| **🔒 クラウドTTS音声合成の排他制御・多重実行ガード (BUG-005)** | `CloudEdgeTtsEngine.kt` に Coroutines `Mutex` ロックを導入。<br>字幕が急激に連続取得された場合でも、一時ファイル（`tempFile`）の上書きや `MediaPlayer` の多重再生衝突、リソースリークを完全に防止。 |
+| **⏱️ 高速Web翻訳エンジンのネットワークタイムアウト保護 (BUG-006)** | `FreeWebTranslationEngine.kt` のリクエスト全体を `withTimeoutOrNull(4500L)` で保護。<br>電波微弱時や公衆Wi-Fiの不通時にスレッドが永久ブロックされるのを防止し、定型フレーズ辞書へのシームレスな退避を保証。 |
+| **⚡ 広告ブロックエンジンの文字列プレチェックによる高速化 (BUG-007)** | `AdBlockEngine.kt` において、画像・フォント・CSSなど全リソースで走っていた重い `Uri.parse()` をバイパスする高速文字列プレ判定を追加。<br>WebView の描画フレームレートとページスクロールの滑らかさを向上。 |
+| **🗣️ 声の性別（女性/男性）変更の既存TTSインスタンス即時同期 (BUG-008)** | `UniVoicePipelineManager.kt` において、設定変更時に `cloudEdgeTts` および `fallbackSystemTts` のインスタンスに対しても `settings.voiceGender` を明示的に再適用。設定画面での変更が即座に反映されるよう改善。 |
+
+### v1.1.0 メジャーアップデート内容 (versionCode: 6)
 
 | 項目 | 改善・修正の詳細内容 |
 | :--- | :--- |
