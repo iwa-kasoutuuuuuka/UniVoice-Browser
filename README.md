@@ -12,19 +12,19 @@
 [![UI Language](https://img.shields.io/badge/UI-Japanese%20Only%20%28100%25%29-red.svg)](#完全日本語ui設計)
 [![Build Status](https://img.shields.io/badge/Build-Passing-brightgreen.svg)]()
 [![Security](https://img.shields.io/badge/Security-Hardened-blue.svg)]()
-[![Release APK](https://img.shields.io/badge/APK_Download-v1.1.9_(70.0MB)-blueviolet.svg?logo=android)](release/UniVoiceBrowser-v1.1.0.apk)
+[![Release APK](https://img.shields.io/badge/APK_Download-v1.2.0_(70.0MB)-blueviolet.svg?logo=android)](release/UniVoiceBrowser-v1.2.0.apk)
 
 <p align="center">
-  <a href="https://github.com/iwa-kasoutuuuuuka/UniVoice-Browser/raw/main/release/UniVoiceBrowser-v1.1.0.apk">
-    <img src="https://img.shields.io/badge/📥_今すぐダウンロード-UniVoiceBrowser--v1.1.9.apk_(69.9MB)-2ea44f?style=for-the-badge&logo=android&logoColor=white" alt="APK直接ダウンロード" />
+  <a href="https://github.com/iwa-kasoutuuuuuka/UniVoice-Browser/raw/main/release/UniVoiceBrowser-v1.2.0.apk">
+    <img src="https://img.shields.io/badge/📥_今すぐダウンロード-UniVoiceBrowser--v1.2.0.apk_(70.0MB)-2ea44f?style=for-the-badge&logo=android&logoColor=white" alt="APK直接ダウンロード" />
   </a>
 </p>
 
 > [!TIP]
 > **ワンタップで今すぐインストール可能**: リリース版APK（署名済み）は上記バッジまたは以下のダイレクトリンクからダウンロードして、Android端末（Android 8.0以降 / Poco F6 Pro・Galaxy・Pixel・エミュレーター等）ですぐにご利用いただけます。
 > 
-> 🔗 **ダイレクトダウンロード**: [UniVoiceBrowser-v1.1.0.apk (約69.9MB)](https://github.com/iwa-kasoutuuuuuka/UniVoice-Browser/raw/main/release/UniVoiceBrowser-v1.1.0.apk)  
-> 🔗 **リポジトリ内ファイルパス**: [`release/UniVoiceBrowser-v1.1.0.apk`](release/UniVoiceBrowser-v1.1.0.apk)
+> 🔗 **ダイレクトダウンロード**: [UniVoiceBrowser-v1.2.0.apk (約70.0MB)](https://github.com/iwa-kasoutuuuuuka/UniVoice-Browser/raw/main/release/UniVoiceBrowser-v1.2.0.apk)  
+> 🔗 **リポジトリ内ファイルパス**: [`release/UniVoiceBrowser-v1.2.0.apk`](release/UniVoiceBrowser-v1.2.0.apk)
 
 **UniVoice Browser** は、YouTubeなどの動画視聴時に元の外国語（英語等）音声をHTML5レベルで完全抑制（ミュート）し、リアルタイムに字幕をキャプチャ・翻訳して、流暢な日本語音声（Text-to-Speech）をオーバーレイ再生するAndroid専用の次世代AIブラウザです。
 
@@ -105,10 +105,11 @@
 
 ## 🔄 最近のアップデート・更新履歴 (Changelog)
 
-### 【最新版】v1.1.9 全画面モード時の一時停止・再生コントロール強化＆画面タップ連動アップデート (versionCode: 15)
+### 【最新版】v1.2.0 全画面モード時の一時停止・再生コントロール強化＆バージョン体系更新 (versionCode: 16)
 
 | 項目 | 改善・修正の詳細内容 |
 | :--- | :--- |
+| **🚀 APKバージョン体系のアップデート (v1.2.0 / versionCode: 16)** | アプリの `versionName` を `1.2.0`、`versionCode` を `16` にインクリメント。<br>リリースAPKの配信ファイル名を `UniVoiceBrowser-v1.2.0.apk` に刷新し、既存インストール端末への上書きアップデートを安全かつ確実に実施可能。 |
 | **⏯️ 字幕カードヘッダーへの一時停止/再生ボタン常設** | 全画面シアター再生時（ナビゲーションバーが非表示になる際）でも動画のコントロールが失われないよう、字幕オーバーレイカード上部ヘッダーに「再生／一時停止ボタン（`btnCardPlayPause`）」を新設。<br>動画の再生状態（再生中 ↔ 一時停止中）とリアルタイムに連動してアイコン（`▶` ↔ `⏸`）が自動切り替えされます。 |
 | **👆 全画面コンテナの画面タップによる再生/一時停止トグル** | 全画面映像表示エリア（Chromium `CustomView` / `SurfaceView` および `fullscreenContainer`）を直接タップした際にも、動画の再生／一時停止が瞬時に切り替わるタッチリスナーを実装。<br>ボタンを探すことなく、画面をワンタップするだけで動画と日本語吹き替え音声を同時に一時停止・再開できます。 |
 | **🎬 YouTube Player API とのハイブリッド連携による確実な停止** | JavaScript 側の `__univoice_toggle_play_pause` を強化し、YouTube公式の内部プレイヤーAPI（`player.getPlayerState()`, `player.pauseVideo()`, `player.playVideo()`）を最優先で呼び出し、フォールバックとして HTML5 `<video>` 要素を操作する2重制御構造へ刷新。<br>全画面時やシーク直後でも確実に動画を一時停止・再開できるように改善。 |
