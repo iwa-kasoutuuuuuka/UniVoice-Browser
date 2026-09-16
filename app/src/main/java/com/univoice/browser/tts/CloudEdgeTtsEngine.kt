@@ -65,25 +65,26 @@ class CloudEdgeTtsEngine(
                     .addHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
                     .build()
 
-                val response = httpClient.newCall(request).execute()
-                if (!response.isSuccessful) {
-                    Log.w(TAG, "[UniVoiceBrowser] クラウドTTS取得失敗 (HTTP ${response.code})。標準TTSへフォールバックします")
-                    return@withContext fallbackSystemTts.synthesizeAndPlay(text, speed, pitch)
-                }
-
-                val body = response.body
-                if (body == null) {
-                    return@withContext fallbackSystemTts.synthesizeAndPlay(text, speed, pitch)
-                }
-
-                // 一時ファイルにストリーム直結保存（全バイト配列一括メモリ展開を回避しOOMを防止）
                 val file = File(context.cacheDir, "temp_tts_${System.currentTimeMillis()}.mp3")
                 tempFile = file
                 currentTempFile = file
 
-                FileOutputStream(file).use { fos ->
-                    body.byteStream().use { input ->
-                        input.copyTo(fos)
+                httpClient.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        Log.w(TAG, "[UniVoiceBrowser] クラウドTTS取得失敗 (HTTP ${response.code})。標準TTSへフォールバックします")
+                        return@withContext fallbackSystemTts.synthesizeAndPlay(text, speed, pitch)
+                    }
+
+                    val body = response.body
+                    if (body == null) {
+                        return@withContext fallbackSystemTts.synthesizeAndPlay(text, speed, pitch)
+                    }
+
+                    // 一時ファイルにストリーム直結保存（全バイト配列一括メモリ展開を回避しOOMを防止）
+                    FileOutputStream(file).use { fos ->
+                        body.byteStream().use { input ->
+                            input.copyTo(fos)
+                        }
                     }
                 }
 
@@ -98,11 +99,17 @@ class CloudEdgeTtsEngine(
                 withContext(Dispatchers.Main) {
                     currentCompletionDeferred?.complete(Unit)
                     currentCompletionDeferred = deferred
-                    mediaPlayer?.apply {
-                        if (isPlaying) stop()
-                        reset()
-                        release()
-                    }
+                    try {
+                        if (mediaPlayer?.isPlaying == true) mediaPlayer?.stop()
+                    } catch (_: Exception) {}
+                    try {
+                        mediaPlayer?.reset()
+                    } catch (_: Exception) {}
+                    try {
+                        mediaPlayer?.release()
+                    } catch (_: Exception) {}
+                    mediaPlayer = null
+
                     val mp = MediaPlayer()
                     mediaPlayer = mp
                     currentTempFile = file
@@ -120,7 +127,7 @@ class CloudEdgeTtsEngine(
                     
                     mp.setOnCompletionListener {
                         safeDeleteTempFile(file)
-                        mp.release()
+                        try { mp.release() } catch (_: Exception) {}
                         if (mediaPlayer == mp) {
                             mediaPlayer = null
                         }
@@ -129,6 +136,10 @@ class CloudEdgeTtsEngine(
                     mp.setOnErrorListener { _, what, extra ->
                         Log.e(TAG, "[UniVoiceBrowser] MediaPlayerエラー: what=$what, extra=$extra")
                         safeDeleteTempFile(file)
+                        try { mp.release() } catch (_: Exception) {}
+                        if (mediaPlayer == mp) {
+                            mediaPlayer = null
+                        }
                         deferred.complete(Unit)
                         true
                     }
@@ -175,13 +186,17 @@ class CloudEdgeTtsEngine(
         try {
             currentCompletionDeferred?.complete(Unit)
             currentCompletionDeferred = null
-            mediaPlayer?.apply {
-                if (isPlaying) {
-                    stop()
+            try {
+                if (mediaPlayer?.isPlaying == true) {
+                    mediaPlayer?.stop()
                 }
-                reset()
-                release()
-            }
+            } catch (_: Exception) {}
+            try {
+                mediaPlayer?.reset()
+            } catch (_: Exception) {}
+            try {
+                mediaPlayer?.release()
+            } catch (_: Exception) {}
             mediaPlayer = null
             safeDeleteTempFile(currentTempFile)
             currentTempFile = null

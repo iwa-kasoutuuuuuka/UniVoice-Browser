@@ -142,14 +142,7 @@ class BatchDubbingPlayer(private val context: Context) {
     fun stopDubbing() {
         isDubbingActive = false
         currentPlayingIndex = -1
-        try {
-            mediaPlayer?.stop()
-            mediaPlayer?.release()
-        } catch (e: Exception) {
-            Log.w(TAG, "[UniVoiceBrowser] 音声停止警告: ${e.message}")
-        } finally {
-            mediaPlayer = null
-        }
+        stopCurrentMediaPlayer()
         onPlaybackStateChanged?.invoke(false)
         Log.i(TAG, "[UniVoiceBrowser] 日本語版吹き替え同期再生を停止しました")
     }

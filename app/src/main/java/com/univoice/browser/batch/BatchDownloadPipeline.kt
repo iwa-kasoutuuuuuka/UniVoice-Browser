@@ -365,6 +365,9 @@ class BatchDownloadPipeline(
                 }
             }
         }
+        if (!tempFile.exists()) {
+            tempFile.writeBytes(ByteArray(0))
+        }
         return tempFile
     }
 
@@ -434,6 +437,7 @@ class BatchDownloadPipeline(
                         seg.translatedText = ""
                     }
                 } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
                     seg.translatedText = ""
                 }
             }
@@ -530,6 +534,7 @@ class BatchDownloadPipeline(
                 }
                 if (success) break
             } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
                 lastErrorMsg = "モデル $model 通信例外: ${e.message}"
                 Log.w(TAG, "[UniVoiceBrowser] $lastErrorMsg")
             }
@@ -554,6 +559,7 @@ class BatchDownloadPipeline(
                         seg.translatedText = ""
                     }
                 } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
                     seg.translatedText = ""
                 }
             }
@@ -621,6 +627,7 @@ class BatchDownloadPipeline(
                     }
                 }
             } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
                 Log.w(TAG, "[UniVoiceBrowser] 動画キャッシュ取得警告: ${e.message}")
             }
         }
@@ -664,6 +671,7 @@ class BatchDownloadPipeline(
                 return
             }
         } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
             Log.w(TAG, "[UniVoiceBrowser] クラウドTTS生成例外 (${outputFile.name}): ${e.message}。フォールバック音声を生成します")
         }
 
