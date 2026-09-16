@@ -16,7 +16,7 @@ class UniVoiceJSInterface(
     private val onAudioSuppressedCallback: (Boolean) -> Unit,
     private val onCaptionStateChangedCallback: (Boolean) -> Unit = {},
     private val onVideoNavigatedCallback: (url: String?, videoId: String?) -> Unit = { _, _ -> },
-    private val onBatchCaptionsExtractedCallback: (String) -> Unit = {}
+    private val onBatchCaptionsExtractedCallback: (String?) -> Unit = {}
 ) {
 
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -138,8 +138,7 @@ class UniVoiceJSInterface(
     @JavascriptInterface
     fun onBatchCaptionsExtracted(jsonPayload: String?) {
         if (!isOriginAuthorized()) return
-        if (jsonPayload.isNullOrBlank()) return
-        Log.i(TAG, "[UniVoiceBrowser] バッチ用字幕抽出データ受信: ${jsonPayload.length} bytes")
+        Log.i(TAG, "[UniVoiceBrowser] バッチ用字幕抽出データ受信: ${jsonPayload?.length ?: 0} bytes")
         mainHandler.post {
             onBatchCaptionsExtractedCallback(jsonPayload)
         }

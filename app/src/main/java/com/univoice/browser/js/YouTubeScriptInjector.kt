@@ -646,28 +646,30 @@ object YouTubeScriptInjector {
             // バッチ翻訳用の全編字幕セグメント抽出ヘルパー
             window.__univoice_extract_batch_captions = function() {
                 try {
+                    const b = window.UniVoiceBridge || bridge;
+                    const notifyEmpty = function() {
+                        if (b && b.onBatchCaptionsExtracted) {
+                            b.onBatchCaptionsExtracted("");
+                        }
+                    };
+
                     const player = document.querySelector('#movie_player, .html5-video-player');
                     if (!player || typeof player.getPlayerResponse !== 'function') {
                         log("バッチ字幕抽出: playerまたはgetPlayerResponseが存在しません");
-                        if (bridge && bridge.onBatchCaptionsExtracted) {
-                            bridge.onBatchCaptionsExtracted(null);
-                        }
+                        notifyEmpty();
                         return;
                     }
                     const pr = player.getPlayerResponse();
                     const tracks = pr && pr.captions && pr.captions.playerCaptionsTracklistRenderer && pr.captions.playerCaptionsTracklistRenderer.captionTracks;
                     if (!tracks || tracks.length === 0) {
                         log("バッチ字幕抽出: captionTracksが存在しません");
-                        if (bridge && bridge.onBatchCaptionsExtracted) {
-                            bridge.onBatchCaptionsExtracted(null);
-                        }
+                        notifyEmpty();
                         return;
                     }
                     let targetTrack = tracks.find(function(t) { return t.languageCode === 'en' || (t.vssId && t.vssId.indexOf('.en') !== -1); }) || tracks[0];
                     if (!targetTrack || !targetTrack.baseUrl) {
-                        if (bridge && bridge.onBatchCaptionsExtracted) {
-                            bridge.onBatchCaptionsExtracted(null);
-                        }
+                        log("バッチ字幕抽出: targetTrackまたはbaseUrlが存在しません");
+                        notifyEmpty();
                         return;
                     }
 
@@ -676,9 +678,7 @@ object YouTubeScriptInjector {
                         .then(function(res) { return res.json(); })
                         .then(function(data) {
                             if (!data || !data.events) {
-                                if (bridge && bridge.onBatchCaptionsExtracted) {
-                                    bridge.onBatchCaptionsExtracted(null);
-                                }
+                                notifyEmpty();
                                 return;
                             }
                             const segments = [];
@@ -700,20 +700,19 @@ object YouTubeScriptInjector {
                                 }
                             });
                             log("バッチ用全編字幕セグメント抽出完了: " + segments.length + "件");
-                            if (bridge && bridge.onBatchCaptionsExtracted) {
-                                bridge.onBatchCaptionsExtracted(JSON.stringify(segments));
+                            if (b && b.onBatchCaptionsExtracted) {
+                                b.onBatchCaptionsExtracted(segments.length > 0 ? JSON.stringify(segments) : "");
                             }
                         })
                         .catch(function(err) {
                             log("バッチ用字幕トラック取得エラー: " + err.message);
-                            if (bridge && bridge.onBatchCaptionsExtracted) {
-                                bridge.onBatchCaptionsExtracted(null);
-                            }
+                            notifyEmpty();
                         });
                 } catch(e) {
                     log("バッチ用字幕トラック抽出例外: " + e.message);
-                    if (bridge && bridge.onBatchCaptionsExtracted) {
-                        bridge.onBatchCaptionsExtracted(null);
+                    const b = window.UniVoiceBridge || bridge;
+                    if (b && b.onBatchCaptionsExtracted) {
+                        b.onBatchCaptionsExtracted("");
                     }
                 }
             };

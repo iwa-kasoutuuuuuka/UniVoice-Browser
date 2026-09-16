@@ -12,7 +12,7 @@
 [![UI Language](https://img.shields.io/badge/UI-Japanese%20Only%20%28100%25%29-red.svg)](#完全日本語ui設計)
 [![Build Status](https://img.shields.io/badge/Build-Passing-brightgreen.svg)]()
 [![Security](https://img.shields.io/badge/Security-Hardened-blue.svg)]()
-[![Release APK](https://img.shields.io/badge/APK_Download-v1.1.4_(69.9MB)-blueviolet.svg?logo=android)](release/UniVoiceBrowser-v1.1.0.apk)
+[![Release APK](https://img.shields.io/badge/APK_Download-v1.1.5_(69.9MB)-blueviolet.svg?logo=android)](release/UniVoiceBrowser-v1.1.0.apk)
 
 <p align="center">
   <a href="https://github.com/iwa-kasoutuuuuuka/UniVoice-Browser/raw/main/release/UniVoiceBrowser-v1.1.0.apk">
@@ -105,7 +105,15 @@
 
 ## 🔄 最近のアップデート・更新履歴 (Changelog)
 
-### 【最新版】v1.1.4 デバッグ専用スキル配備＆潜在リソースリーク・コルーチン制御修正 (versionCode: 10)
+### 【最新版】v1.1.5 バッチ吹き替え「字幕抽出待機」ハング完全解消＆フェイルセーフ強化 (versionCode: 11)
+
+| 項目 | 改善・修正の詳細内容 |
+| :--- | :--- |
+| **🚨 「YouTube字幕データの抽出を試行中...」フリーズの根本解消** | YouTube動画に字幕トラック（`captionTracks`）が存在しない場合、JavaScript側から `onBatchCaptionsExtracted(null)` が送信されるものの、ネイティブBridge側の `if (jsonPayload.isNullOrBlank()) return` によりコールバックが握りつぶされ、画面が「解析中...」のまま永久停止していた重大不具合を完全修正。<br>`UniVoiceJSInterface` のシグネチャを `String?` に修正し、空データ受信時でも確実にActivity側へ通知を到達。 |
+| **⏱️ 2000ms フェイルセーフ安全タイマーの導入** | ページのロード状況やネットワーク遅延によりJavaScript側の字幕抽出スクリプトが応答しない場合でも、2000ms後に自動的にフォールバック処理を実行する安全タイマーを実装。<br>いかなる通信・DOM状態でも進行がストップしない堅牢性を確保。 |
+| **💡 字幕なし動画での親切な設定画面誘導ガード** | 字幕が存在しない動画に対して「アプローチB（音声文字起こし）」を実行した際、端末内に Whisper モデルが未配置であれば、単にエラー終了するのではなく「この動画にはYouTube字幕が付いていません。音声からのAI文字起こしを行うには、設定画面の『オンデバイスAIモデル管理』からWhisperモデルを配備してください」と明確に案内し、ボタンを「設定を開く」に自動遷移。 |
+
+### v1.1.4 デバッグ専用スキル配備＆潜在リソースリーク・コルーチン制御修正 (versionCode: 10)
 
 | 項目 | 改善・修正の詳細内容 |
 | :--- | :--- |

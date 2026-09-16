@@ -53,6 +53,10 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
     // BUG-C02: ページロード完了後に実行する吹き替え再生キュー
     private var pendingDubbingPlayback: (() -> Unit)? = null
 
+    // バッチ字幕抽出の保留状態管理＆安全タイムアウト
+    private var isBatchExtractionPending: Boolean = false
+    private var isBatchNeedsSettings: Boolean = false
+
     // BUG-H02: ダウンロードリストダイアログ参照 (WindowLeaked防止)
     private var downloadedVideosDialog: com.google.android.material.bottomsheet.BottomSheetDialog? = null
     // BUG-H01: ダウンロードリストFlow監視ジョブ
@@ -314,6 +318,11 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
 
         // 6. ダウンロード徹底バッチ翻訳の「吹き替えを開始」/「日本語版再生」ボタン
         binding.btnStartBatchDubbing.setOnClickListener {
+            if (isBatchNeedsSettings) {
+                isBatchNeedsSettings = false
+                startActivity(Intent(this, UniVoiceSettingsActivity::class.java))
+                return@setOnClickListener
+            }
             val player = batchPlayer
             val segments = completedBatchSegments
             if (player != null && segments != null && segments.isNotEmpty()) {
@@ -541,6 +550,8 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
                     batchJob = null
                     batchPlayer?.stopDubbing()
                     completedBatchSegments = null
+                    isBatchNeedsSettings = false
+                    isBatchExtractionPending = false
                     binding.btnStartBatchDubbing.isEnabled = true
                     binding.btnStartBatchDubbing.text = "吹き替えを開始"
                     binding.layoutBatchProgress.visibility = View.GONE
@@ -799,20 +810,34 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
             return
         }
 
+        isBatchExtractionPending = true
+        isBatchNeedsSettings = false
         binding.btnStartBatchDubbing.isEnabled = false
         binding.btnStartBatchDubbing.text = "解析中..."
         binding.layoutBatchProgress.visibility = View.VISIBLE
         binding.pbBatchProgress.progress = 5
         binding.tvBatchProgressText.text = "YouTube字幕データの抽出を試行中..."
 
+        // 安全タイマー: JavaScriptからの応答が2000ms以内に来ない場合の自動フォールバック
+        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+            if (isBatchExtractionPending) {
+                Log.w(TAG, "[UniVoiceBrowser] 字幕抽出スクリプトの応答タイムアウト(2000ms)。直接フォールバック処理を実行します")
+                handleExtractedBatchCaptions(null)
+            }
+        }, 2000)
+
         // まずWebページ内の字幕データを抽出試行（字幕がある場合は最速かつ無料/API消費ゼロで高品質バッチ生成）
         binding.wvBrowser.evaluateJavascript(
-            "if (typeof window.__univoice_extract_batch_captions === 'function') { window.__univoice_extract_batch_captions(); } else if (window.UniVoiceBridge && window.UniVoiceBridge.onBatchCaptionsExtracted) { window.UniVoiceBridge.onBatchCaptionsExtracted(null); }",
+            "if (typeof window.__univoice_extract_batch_captions === 'function') { window.__univoice_extract_batch_captions(); } else if (window.UniVoiceBridge && window.UniVoiceBridge.onBatchCaptionsExtracted) { window.UniVoiceBridge.onBatchCaptionsExtracted(''); }",
             null
         )
     }
 
     private fun handleExtractedBatchCaptions(jsonPayload: String?) {
+        // 重複実行防止
+        if (!isBatchExtractionPending && jsonPayload == null) return
+        isBatchExtractionPending = false
+
         val currentUrl = binding.wvBrowser.url
         if (!YouTubeScriptInjector.isVideoWatchUrl(currentUrl)) return
 
@@ -833,6 +858,20 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "[UniVoiceBrowser] バッチ字幕パース例外: ${e.message}")
+            }
+        }
+
+        // 字幕なしの場合、かつ音声文字起こしモデル未配置の場合の案内ガード
+        if (parsedSegments.isEmpty()) {
+            val whisperModel = java.io.File(filesDir, "models/whisper_base.onnx")
+            if (!whisperModel.exists() || whisperModel.length() == 0L) {
+                isBatchNeedsSettings = true
+                binding.btnStartBatchDubbing.isEnabled = true
+                binding.btnStartBatchDubbing.text = "設定を開く"
+                binding.layoutBatchProgress.visibility = View.VISIBLE
+                binding.pbBatchProgress.progress = 0
+                binding.tvBatchProgressText.text = "この動画にはYouTube字幕が付いていません。音声からのAI文字起こしを行うには、設定画面の『オンデバイスAIモデル管理』からWhisperモデルを配備してください。"
+                return
             }
         }
 
