@@ -114,6 +114,7 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
         configManager = UniVoiceConfigManager.getInstance(this)
         pipelineManager = UniVoicePipelineManager(this, configManager)
         batchPlayer = com.univoice.browser.batch.BatchDubbingPlayer(this).apply {
+            playbackSpeed = configManager.currentSettings.speechSpeed
             onSegmentChanged = { segment ->
                 runOnUiThread {
                     binding.tvTranslatedSubtitle.text = segment.translatedText
@@ -715,6 +716,7 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
             configManager.settingsFlow.collectLatest { settings ->
                 binding.tvModeBadge.text = settings.currentMode.titleJapanese
                 updateBackgroundAudioButton(settings.backgroundPlaybackEnabled)
+                batchPlayer?.playbackSpeed = settings.speechSpeed
                 // 音声抑制設定が変わった場合、最新設定でスクリプト再適用
                 checkAndInjectYouTubeScripts(binding.wvBrowser.url)
             }
@@ -1125,6 +1127,11 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
         binding.wvBrowser.onResume()
         // フォアグラウンド復帰時はサービス停止
         com.univoice.browser.service.UniVoicePlaybackService.stop(this)
+
+        // 設定画面から復帰時に最新の設定（発話速度等）を同期反映
+        val latestSettings = configManager.currentSettings
+        batchPlayer?.playbackSpeed = latestSettings.speechSpeed
+        Log.d(TAG, "[UniVoiceBrowser] onResume: 最新発話速度設定を同期しました (${latestSettings.speechSpeed}倍)")
     }
 
     /**

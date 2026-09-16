@@ -147,12 +147,20 @@ class CloudEdgeTtsEngine(
                     durationMs = mp.duration
                     mp.start()
                     try {
-                        val params = android.media.PlaybackParams()
+                        val params = try { mp.playbackParams } catch (_: Exception) { android.media.PlaybackParams() }
                         params.speed = speed.coerceIn(0.5f, 2.5f)
                         mp.playbackParams = params
                         Log.d(TAG, "[UniVoiceBrowser] クラウドEdge TTS 再生速度適用完了: ${params.speed}倍")
                     } catch (e: Exception) {
-                        Log.w(TAG, "[UniVoiceBrowser] クラウドEdge TTS 再生速度設定失敗: ${e.message}")
+                        try {
+                            val params = android.media.PlaybackParams().apply {
+                                this.speed = speed.coerceIn(0.5f, 2.5f)
+                            }
+                            mp.playbackParams = params
+                            Log.d(TAG, "[UniVoiceBrowser] クラウドEdge TTS フォールバック再生速度適用完了: ${params.speed}倍")
+                        } catch (e2: Exception) {
+                            Log.w(TAG, "[UniVoiceBrowser] クラウドEdge TTS 再生速度設定失敗: ${e2.message}")
+                        }
                     }
                 }
 

@@ -31,6 +31,21 @@ class BatchDubbingPlayer(private val context: Context) {
     var onSegmentChanged: ((TimedSegment) -> Unit)? = null
     var onPlaybackStateChanged: ((Boolean) -> Unit)? = null
 
+    var playbackSpeed: Float = 1.0f
+        set(value) {
+            field = value.coerceIn(0.5f, 2.5f)
+            try {
+                if (mediaPlayer?.isPlaying == true) {
+                    val params = try { mediaPlayer!!.playbackParams } catch (_: Exception) { android.media.PlaybackParams() }
+                    params.speed = field
+                    mediaPlayer?.playbackParams = params
+                    Log.d(TAG, "[UniVoiceBrowser] バッチ再生中MediaPlayerの速度を即時変更: ${field}倍")
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "[UniVoiceBrowser] バッチ再生速度即時変更失敗: ${e.message}")
+            }
+        }
+
     val isActive: Boolean
         get() = isDubbingActive
 
@@ -238,6 +253,21 @@ class BatchDubbingPlayer(private val context: Context) {
                         mp.seekTo(offsetMs.toInt())
                     }
                     mp.start()
+                    try {
+                        val params = try { mp.playbackParams } catch (_: Exception) { android.media.PlaybackParams() }
+                        params.speed = playbackSpeed.coerceIn(0.5f, 2.5f)
+                        mp.playbackParams = params
+                        Log.d(TAG, "[UniVoiceBrowser] バッチ再生速度適用: ${params.speed}倍")
+                    } catch (e: Exception) {
+                        try {
+                            val params = android.media.PlaybackParams().apply {
+                                speed = playbackSpeed.coerceIn(0.5f, 2.5f)
+                            }
+                            mp.playbackParams = params
+                        } catch (e2: Exception) {
+                            Log.w(TAG, "[UniVoiceBrowser] バッチ再生速度設定失敗: ${e2.message}")
+                        }
+                    }
                     Log.d(TAG, "[UniVoiceBrowser] 日本語音声再生開始: #${segment.index} (${audioFile.name})")
                 }
                 setOnCompletionListener {

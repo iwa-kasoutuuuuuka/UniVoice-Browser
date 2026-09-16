@@ -12,7 +12,7 @@
 [![UI Language](https://img.shields.io/badge/UI-Japanese%20Only%20%28100%25%29-red.svg)](#完全日本語ui設計)
 [![Build Status](https://img.shields.io/badge/Build-Passing-brightgreen.svg)]()
 [![Security](https://img.shields.io/badge/Security-Hardened-blue.svg)]()
-[![Release APK](https://img.shields.io/badge/APK_Download-v1.1.7_(69.9MB)-blueviolet.svg?logo=android)](release/UniVoiceBrowser-v1.1.0.apk)
+[![Release APK](https://img.shields.io/badge/APK_Download-v1.1.8_(70.0MB)-blueviolet.svg?logo=android)](release/UniVoiceBrowser-v1.1.0.apk)
 
 <p align="center">
   <a href="https://github.com/iwa-kasoutuuuuuka/UniVoice-Browser/raw/main/release/UniVoiceBrowser-v1.1.0.apk">
@@ -105,7 +105,15 @@
 
 ## 🔄 最近のアップデート・更新履歴 (Changelog)
 
-### 【最新版】v1.1.7 バッチ一括翻訳チャンク分割・字幕待機時間延長・シーク同期＆MediaPlayer安定化アップデート (versionCode: 13)
+### 【最新版】v1.1.8 発話速度（倍率）のバッチプレイヤー完全連動＆設定即時同期アップデート (versionCode: 14)
+
+| 項目 | 改善・修正の詳細内容 |
+| :--- | :--- |
+| **⚡ 発話速度（0.5x〜2.5x）のバッチ吹き替え完全連動** | `BatchDubbingPlayer` に `playbackSpeed` プロパティおよび `PlaybackParams` 適用ロジックを新設。<br>事前生成された音声ファイル（`dubbing_X.mp3`）を再生する際、設定画面で指定した倍率（1.2倍、1.5倍、2.0倍など）に応じた高速・低速再生を100%忠実に反映。「発話速度が遅い」「倍率を変えても連動しない」問題を根本解消。 |
+| **🔄 設定画面（⚙️）からの復帰時における速度即時同期** | `UniVoiceBrowserActivity.onResume()` および `settingsFlow.collectLatest` において、設定画面から戻った瞬間に最新の `speechSpeed` を `batchPlayer` へ自動反映する同期機構を実装。<br>設定変更後にアプリを再起動することなく、即座に新しい再生速度で吹き替えを楽しめるように改善。 |
+| **🔒 クラウドEdge TTS（ストリーミング）の速度適用堅牢化** | `CloudEdgeTtsEngine` において、`PlaybackParams` を新規生成するのではなく既存の `mp.playbackParams` を取得して速度を変更する Android 公式ベストプラクティスパターンへ移行。<br>Snapdragon 8 Gen 2 / HyperOS (Poco F6 Pro) 等の特定端末で速度パラメータが無視されたり等速（1.0倍）へリセットされていた問題を完全防止。 |
+
+### v1.1.7 バッチ一括翻訳チャンク分割・字幕待機時間延長・シーク同期＆MediaPlayer安定化アップデート (versionCode: 13)
 
 | 項目 | 改善・修正の詳細内容 |
 | :--- | :--- |
