@@ -228,9 +228,19 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
             android.widget.Toast.makeText(this, msg, android.widget.Toast.LENGTH_SHORT).show()
         }
 
+        // 再生/一時停止トグル関数
+        fun togglePlayPause() {
+            binding.wvBrowser.evaluateJavascript("window.__univoice_toggle_play_pause && window.__univoice_toggle_play_pause();", null)
+        }
+
         // トップバーからの直接再生/一時停止コントロール
         binding.btnPlayPause.setOnClickListener {
-            binding.wvBrowser.evaluateJavascript("window.__univoice_toggle_play_pause && window.__univoice_toggle_play_pause();", null)
+            togglePlayPause()
+        }
+
+        // 字幕カード上の再生/一時停止コントロール（全画面時にも直接操作可能）
+        binding.btnCardPlayPause.setOnClickListener {
+            togglePlayPause()
         }
 
         // トップバーからの直接字幕(CC)ON/OFFトグル
@@ -518,9 +528,9 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
             },
             onVideoStateChangedCallback = { isPlaying, currentTimeMs ->
                 runOnUiThread {
-                    binding.btnPlayPause.setImageResource(
-                        if (isPlaying) R.drawable.ic_pause else R.drawable.ic_play_arrow
-                    )
+                    val iconRes = if (isPlaying) R.drawable.ic_pause else R.drawable.ic_play_arrow
+                    binding.btnPlayPause.setImageResource(iconRes)
+                    binding.btnCardPlayPause.setImageResource(iconRes)
                 }
                 // バッチ吹き替えプレイヤーが有効な場合はタイムスタンプ同期を優先
                 batchPlayer?.onVideoPositionChanged(isPlaying, currentTimeMs)
@@ -1020,6 +1030,13 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
         view.isFocusableInTouchMode = true
         view.isClickable = true
         view.requestFocus()
+        // 全画面映像画面タップで再生/一時停止を切り替え可能にする
+        view.setOnClickListener {
+            binding.wvBrowser.evaluateJavascript("window.__univoice_toggle_play_pause && window.__univoice_toggle_play_pause();", null)
+        }
+        binding.fullscreenContainer.setOnClickListener {
+            binding.wvBrowser.evaluateJavascript("window.__univoice_toggle_play_pause && window.__univoice_toggle_play_pause();", null)
+        }
 
         binding.cardSubtitleOverlay.translationX = 0f
         binding.cardSubtitleOverlay.translationY = 0f

@@ -12,11 +12,11 @@
 [![UI Language](https://img.shields.io/badge/UI-Japanese%20Only%20%28100%25%29-red.svg)](#完全日本語ui設計)
 [![Build Status](https://img.shields.io/badge/Build-Passing-brightgreen.svg)]()
 [![Security](https://img.shields.io/badge/Security-Hardened-blue.svg)]()
-[![Release APK](https://img.shields.io/badge/APK_Download-v1.1.8_(70.0MB)-blueviolet.svg?logo=android)](release/UniVoiceBrowser-v1.1.0.apk)
+[![Release APK](https://img.shields.io/badge/APK_Download-v1.1.9_(70.0MB)-blueviolet.svg?logo=android)](release/UniVoiceBrowser-v1.1.0.apk)
 
 <p align="center">
   <a href="https://github.com/iwa-kasoutuuuuuka/UniVoice-Browser/raw/main/release/UniVoiceBrowser-v1.1.0.apk">
-    <img src="https://img.shields.io/badge/📥_今すぐダウンロード-UniVoiceBrowser--v1.1.0.apk_(69.9MB)-2ea44f?style=for-the-badge&logo=android&logoColor=white" alt="APK直接ダウンロード" />
+    <img src="https://img.shields.io/badge/📥_今すぐダウンロード-UniVoiceBrowser--v1.1.9.apk_(69.9MB)-2ea44f?style=for-the-badge&logo=android&logoColor=white" alt="APK直接ダウンロード" />
   </a>
 </p>
 
@@ -105,7 +105,15 @@
 
 ## 🔄 最近のアップデート・更新履歴 (Changelog)
 
-### 【最新版】v1.1.8 発話速度（倍率）のバッチプレイヤー完全連動＆設定即時同期アップデート (versionCode: 14)
+### 【最新版】v1.1.9 全画面モード時の一時停止・再生コントロール強化＆画面タップ連動アップデート (versionCode: 15)
+
+| 項目 | 改善・修正の詳細内容 |
+| :--- | :--- |
+| **⏯️ 字幕カードヘッダーへの一時停止/再生ボタン常設** | 全画面シアター再生時（ナビゲーションバーが非表示になる際）でも動画のコントロールが失われないよう、字幕オーバーレイカード上部ヘッダーに「再生／一時停止ボタン（`btnCardPlayPause`）」を新設。<br>動画の再生状態（再生中 ↔ 一時停止中）とリアルタイムに連動してアイコン（`▶` ↔ `⏸`）が自動切り替えされます。 |
+| **👆 全画面コンテナの画面タップによる再生/一時停止トグル** | 全画面映像表示エリア（Chromium `CustomView` / `SurfaceView` および `fullscreenContainer`）を直接タップした際にも、動画の再生／一時停止が瞬時に切り替わるタッチリスナーを実装。<br>ボタンを探すことなく、画面をワンタップするだけで動画と日本語吹き替え音声を同時に一時停止・再開できます。 |
+| **🎬 YouTube Player API とのハイブリッド連携による確実な停止** | JavaScript 側の `__univoice_toggle_play_pause` を強化し、YouTube公式の内部プレイヤーAPI（`player.getPlayerState()`, `player.pauseVideo()`, `player.playVideo()`）を最優先で呼び出し、フォールバックとして HTML5 `<video>` 要素を操作する2重制御構造へ刷新。<br>全画面時やシーク直後でも確実に動画を一時停止・再開できるように改善。 |
+
+### v1.1.8 発話速度（倍率）のバッチプレイヤー完全連動＆設定即時同期アップデート (versionCode: 14)
 
 | 項目 | 改善・修正の詳細内容 |
 | :--- | :--- |

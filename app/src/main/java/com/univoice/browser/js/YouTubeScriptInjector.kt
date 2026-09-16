@@ -286,17 +286,40 @@ object YouTubeScriptInjector {
             // 外部（ネイティブトップバー等）から呼び出し可能な操作ヘルパー
             window.__univoice_toggle_play_pause = function() {
                 try {
+                    const player = document.querySelector('#movie_player, .html5-video-player');
+                    if (player && typeof player.getPlayerState === 'function') {
+                        const state = player.getPlayerState();
+                        // 1: PLAYING, 3: BUFFERING
+                        if (state === 1 || state === 3) {
+                            if (typeof player.pauseVideo === 'function') {
+                                player.pauseVideo();
+                                log("YouTube API: pauseVideo() 実行");
+                                return false;
+                            }
+                        } else {
+                            if (typeof player.playVideo === 'function') {
+                                player.playVideo();
+                                log("YouTube API: playVideo() 実行");
+                                return true;
+                            }
+                        }
+                    }
                     const video = document.querySelector('video');
                     if (video) {
                         if (video.paused) {
                             video.play();
+                            log("video要素: play() 実行");
+                            return true;
                         } else {
                             video.pause();
+                            log("video要素: pause() 実行");
+                            return false;
                         }
                     }
                 } catch(e) {
                     log("再生切替例外: " + e.message);
                 }
+                return false;
             };
 
             window.__univoice_toggle_cc = function() {
