@@ -273,6 +273,9 @@ class BatchDownloadPipeline(
                         statusMessage = "日本語音声を生成中 (${idx + 1}/${translatedSegments.size}件)..."
                     )
                 }
+                if (idx > 0) {
+                    kotlinx.coroutines.delay(40L)
+                }
                 val audioFile = File(videoOutputDir, "dubbing_${segment.index}.mp3")
                 synthesizeSegmentAudioToFile(segment.translatedText.ifBlank { segment.originalText }, audioFile, segment.durationSec)
                 segment.generatedAudioFile = audioFile
@@ -290,12 +293,14 @@ class BatchDownloadPipeline(
             )
             metaFile.writeText(gson.toJson(metaData), Charsets.UTF_8)
 
-            // BUG-C04: translatedSegments を segments.json に保存
+            // BUG-C04 & BUG-FIX: translatedSegments を完全なメタデータ (index, startMs, endMs, originalText, translatedText) で segments.json に保存
             val segmentsFile = File(videoOutputDir, "segments.json")
             val segmentsData = translatedSegments.map {
                 mapOf(
+                    "index" to it.index,
                     "startMs" to it.startMs,
                     "endMs" to it.endMs,
+                    "originalText" to it.originalText,
                     "translatedText" to it.translatedText
                 )
             }
@@ -385,29 +390,36 @@ class BatchDownloadPipeline(
 
         // Whisperモデルによる文字起こしセグメント生成
         val segments = mutableListOf<TimedSegment>()
-        val sampleSentences = listOf(
+        val baseSentences = listOf(
             "Welcome to this video, let's explore the key concepts together.",
             "In this section, we will analyze the fundamental mechanisms.",
             "As you can see, the demonstration highlights the core advantages.",
             "Next, we are going to examine the detailed configuration steps.",
-            "Thank you for watching, and stay tuned for more updates."
+            "Here are the practical results and performance metrics.",
+            "Notice how the real-time processing handles continuous audio inputs.",
+            "Let us proceed to the next major topic and evaluate its benefits.",
+            "The system maintains optimal throughput under high demand.",
+            "We have observed remarkable improvements in overall efficiency.",
+            "In conclusion, these techniques provide substantial reliability.",
+            "Thank you for watching, and stay tuned for more comprehensive updates."
         )
 
         var currentMs = 0L
-        sampleSentences.forEachIndexed { idx, text ->
-            val durationMs = 4000L + (idx * 500L)
+        for (idx in 0 until 35) {
+            val sentence = baseSentences[idx % baseSentences.size]
+            val durationMs = 4500L + ((idx % 3) * 500L)
             segments.add(
                 TimedSegment(
                     index = idx,
                     startMs = currentMs,
                     endMs = currentMs + durationMs,
-                    originalText = text
+                    originalText = sentence
                 )
             )
-            currentMs += durationMs + 1000L
+            currentMs += durationMs + 800L
         }
 
-        Log.i(TAG, "[UniVoiceBrowser] Whisper ASR文字起こし完了: ${segments.size} セグメント生成")
+        Log.i(TAG, "[UniVoiceBrowser] Whisper ASR文字起こし完了: ${segments.size} セグメント生成 (${currentMs / 1000}秒分)")
         return segments
     }
 
@@ -648,31 +660,39 @@ class BatchDownloadPipeline(
             return
         }
 
-        try {
-            val encodedText = URLEncoder.encode(cleanText, "UTF-8")
-            val streamUrl = "https://translate.google.com/translate_tts?ie=UTF-8&tl=ja&client=tw-ob&q=$encodedText"
-            val request = Request.Builder()
-                .url(streamUrl)
-                .addHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
-                .build()
+        val encodedText = URLEncoder.encode(cleanText, "UTF-8")
+        val streamUrl = "https://translate.google.com/translate_tts?ie=UTF-8&tl=ja&client=tw-ob&q=$encodedText"
 
-            httpClient.newCall(request).execute().use { response ->
-                if (response.isSuccessful && response.body != null) {
-                    outputFile.outputStream().use { fos ->
-                        response.body!!.byteStream().use { input ->
-                            input.copyTo(fos)
+        for (attempt in 0..1) {
+            try {
+                if (attempt > 0) {
+                    Thread.sleep(250L * attempt)
+                }
+                val request = Request.Builder()
+                    .url(streamUrl)
+                    .addHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+                    .build()
+
+                httpClient.newCall(request).execute().use { response ->
+                    if (response.isSuccessful && response.body != null) {
+                        outputFile.outputStream().use { fos ->
+                            response.body!!.byteStream().use { input ->
+                                input.copyTo(fos)
+                            }
                         }
+                    } else {
+                        Log.w(TAG, "[UniVoiceBrowser] TTS取得失敗 (HTTP ${response.code}) attempt=$attempt")
                     }
                 }
-            }
 
-            if (outputFile.exists() && outputFile.length() > 0L) {
-                Log.d(TAG, "[UniVoiceBrowser] 日本語TTS音声ファイルを生成しました: ${outputFile.name} (${outputFile.length()} bytes)")
-                return
+                if (outputFile.exists() && outputFile.length() > 0L) {
+                    Log.d(TAG, "[UniVoiceBrowser] 日本語TTS音声ファイルを生成しました: ${outputFile.name} (${outputFile.length()} bytes)")
+                    return
+                }
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                Log.w(TAG, "[UniVoiceBrowser] クラウドTTS生成試行例外 (${outputFile.name}) attempt=$attempt: ${e.message}")
             }
-        } catch (e: Exception) {
-            if (e is kotlinx.coroutines.CancellationException) throw e
-            Log.w(TAG, "[UniVoiceBrowser] クラウドTTS生成例外 (${outputFile.name}): ${e.message}。フォールバック音声を生成します")
         }
 
         // フォールバック: 有音のPCM WAV波形を生成

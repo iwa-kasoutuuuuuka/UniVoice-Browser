@@ -681,25 +681,59 @@ object YouTubeScriptInjector {
                                 notifyEmpty();
                                 return;
                             }
-                            const segments = [];
-                            let idx = 0;
+                            const rawList = [];
                             data.events.forEach(function(ev) {
-                                if (!ev.segs || !ev.tStartMs) return;
+                                if (!ev.segs || typeof ev.tStartMs !== 'number') return;
                                 const start = ev.tStartMs;
-                                const dur = ev.dDurationMs || 3000;
+                                const dur = ev.dDurationMs || 2500;
                                 const end = start + dur;
-                                const text = ev.segs.map(function(s) { return s.utf8 || ''; }).join('').trim();
+                                const text = ev.segs.map(function(s) { return s.utf8 || ''; }).join('').replace(/\s+/g, ' ').trim();
                                 const sanitized = sanitizeCaption(text);
-                                if (sanitized && sanitized.length >= 2) {
-                                    segments.push({
-                                        index: idx++,
+                                if (sanitized && sanitized.length >= 1) {
+                                    rawList.push({
                                         startMs: start,
                                         endMs: end,
-                                        originalText: sanitized
+                                        text: sanitized
                                     });
                                 }
                             });
-                            log("バッチ用全編字幕セグメント抽出完了: " + segments.length + "件");
+
+                            // 短すぎる細切れ字幕（YouTube自動生成の単語単位分割）を自然な会話単位（最大5秒）に結合
+                            const mergedList = [];
+                            let currentChunk = null;
+
+                            rawList.forEach(function(item) {
+                                if (!currentChunk) {
+                                    currentChunk = { startMs: item.startMs, endMs: item.endMs, text: item.text };
+                                    return;
+                                }
+
+                                const gapMs = item.startMs - currentChunk.endMs;
+                                const combinedDuration = item.endMs - currentChunk.startMs;
+                                const isSentenceEnd = /[.!?。！？]$/.test(currentChunk.text);
+
+                                if (gapMs < 1200 && combinedDuration <= 5500 && !isSentenceEnd && currentChunk.text.length < 70) {
+                                    currentChunk.endMs = Math.max(currentChunk.endMs, item.endMs);
+                                    currentChunk.text = (currentChunk.text + " " + item.text).trim();
+                                } else {
+                                    mergedList.push(currentChunk);
+                                    currentChunk = { startMs: item.startMs, endMs: item.endMs, text: item.text };
+                                }
+                            });
+                            if (currentChunk) {
+                                mergedList.push(currentChunk);
+                            }
+
+                            const segments = mergedList.map(function(item, idx) {
+                                return {
+                                    index: idx,
+                                    startMs: item.startMs,
+                                    endMs: item.endMs,
+                                    originalText: item.text
+                                };
+                            });
+
+                            log("バッチ用全編字幕セグメント抽出完了: " + segments.length + "件 (元イベント: " + rawList.length + "件)");
                             if (b && b.onBatchCaptionsExtracted) {
                                 b.onBatchCaptionsExtracted(segments.length > 0 ? JSON.stringify(segments) : "");
                             }

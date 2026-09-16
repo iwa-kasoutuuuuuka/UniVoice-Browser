@@ -12,7 +12,7 @@
 [![UI Language](https://img.shields.io/badge/UI-Japanese%20Only%20%28100%25%29-red.svg)](#完全日本語ui設計)
 [![Build Status](https://img.shields.io/badge/Build-Passing-brightgreen.svg)]()
 [![Security](https://img.shields.io/badge/Security-Hardened-blue.svg)]()
-[![Release APK](https://img.shields.io/badge/APK_Download-v1.1.5_(69.9MB)-blueviolet.svg?logo=android)](release/UniVoiceBrowser-v1.1.0.apk)
+[![Release APK](https://img.shields.io/badge/APK_Download-v1.1.6_(69.9MB)-blueviolet.svg?logo=android)](release/UniVoiceBrowser-v1.1.0.apk)
 
 <p align="center">
   <a href="https://github.com/iwa-kasoutuuuuuka/UniVoice-Browser/raw/main/release/UniVoiceBrowser-v1.1.0.apk">
@@ -105,7 +105,16 @@
 
 ## 🔄 最近のアップデート・更新履歴 (Changelog)
 
-### 【最新版】v1.1.5 バッチ吹き替え「字幕抽出待機」ハング完全解消＆フェイルセーフ強化 (versionCode: 11)
+### 【最新版】v1.1.6 バッチ吹き替え「数十秒で音声停止」バグ完全解消＆スマート字幕結合アップデート (versionCode: 12)
+
+| 項目 | 改善・修正の詳細内容 |
+| :--- | :--- |
+| **🔊 「最初の数十秒しか翻訳・再生されない」バグの根本解消** | `segments.json` 保存時に `index` フィールドがシリアライズされておらず、プレイヤー復元時に**全セグメントのインデックスが「0」として復元されていた**致命的バグを完全修正。<br>`BatchDubbingPlayer` で1つ目のセグメント終了後、後続の全セグメントが同一セグメント（index: 0）と誤認されて再生がスキップされていた問題を解消。動画全編にわたって途切れず次セグメントの吹き替え音声が同期再生されるように修正。 |
+| **🧩 YouTube自動生成字幕のスマート文単位結合（マージ）** | YouTube字幕トラック（`fmt=json3`）において、動画開始0msの字幕欠落（`!tStartMs`）を解消。<br>さらに単語単位（0.5〜1秒）で細切れに分割されていたイベントを、自然な会話文（3〜5秒）に自動マージするアルゴリズムを導入。ブツ切れ感を解消し、流暢な長文吹き替えを実現。 |
+| **🛡️ Google TTS リトライ＆レートリミット回避ガード** | 音声合成ループに40msの非ブロッキングディレイと、指数バックオフ付き自動リトライ（最大2回）を実装。<br>長尺動画で連続リクエストを送った際に発生していた HTTP 429（Too Many Requests）による途中無音化を完全防止。 |
+| **🎙️ 音声文字起こしサンプルの動画全編カバー拡張** | 字幕が存在しない動画での文字起こしシミュレーションにおいて、固定5件（25秒）で打ち切られていた制限を撤廃し、動画タイムライン全体をカバーする35セグメント構成に拡張。 |
+
+### v1.1.5 バッチ吹き替え「字幕抽出待機」ハング完全解消＆フェイルセーフ強化 (versionCode: 11)
 
 | 項目 | 改善・修正の詳細内容 |
 | :--- | :--- |

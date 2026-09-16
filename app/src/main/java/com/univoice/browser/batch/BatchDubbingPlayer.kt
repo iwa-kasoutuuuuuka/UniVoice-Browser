@@ -62,14 +62,16 @@ class BatchDubbingPlayer(private val context: Context) {
                 val type = object : TypeToken<List<TimedSegment>>() {}.type
                 val parsedSegments: List<TimedSegment> = Gson().fromJson(segmentsJsonFile.readText(), type)
                 
-                parsedSegments.forEach { seg ->
-                    val matchingFile = audioFiles.find { it.nameWithoutExtension.substringAfter("dubbing_").toIntOrNull() == seg.index }
+                parsedSegments.forEachIndexed { idx, seg ->
+                    val actualIndex = if (seg.index > 0) seg.index else idx
+                    val matchingFile = audioFiles.find { it.nameWithoutExtension.substringAfter("dubbing_").toIntOrNull() == actualIndex }
+                        ?: audioFiles.getOrNull(actualIndex)
                     loadedSegments.add(
                         TimedSegment(
-                            index = seg.index,
+                            index = actualIndex,
                             startMs = seg.startMs,
                             endMs = seg.endMs,
-                            originalText = seg.originalText,
+                            originalText = seg.originalText.ifBlank { "字幕 #${actualIndex + 1}" },
                             translatedText = seg.translatedText,
                             generatedAudioFile = matchingFile ?: seg.generatedAudioFile
                         )
