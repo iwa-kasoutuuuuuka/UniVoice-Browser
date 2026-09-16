@@ -26,6 +26,7 @@ class BatchDubbingPlayer(private val context: Context) {
     private var mediaPlayer: MediaPlayer? = null
     private var isDubbingActive = false
     private var isPreparing = false
+    private var lastVideoPositionMs: Long = -1L
 
     var onSegmentChanged: ((TimedSegment) -> Unit)? = null
     var onPlaybackStateChanged: ((Boolean) -> Unit)? = null
@@ -39,6 +40,7 @@ class BatchDubbingPlayer(private val context: Context) {
     fun loadSegments(newSegments: List<TimedSegment>) {
         segments = newSegments.sortedBy { it.startMs }
         currentPlayingIndex = -1
+        lastVideoPositionMs = -1L
         Log.i(TAG, "[UniVoiceBrowser] バッチプレイヤーに ${segments.size} 件の吹き替えセグメントをロードしました")
     }
 
@@ -108,6 +110,7 @@ class BatchDubbingPlayer(private val context: Context) {
     fun startDubbing(initialPositionMs: Long = 0L) {
         isDubbingActive = true
         currentPlayingIndex = -1
+        lastVideoPositionMs = initialPositionMs
         onPlaybackStateChanged?.invoke(true)
         Log.i(TAG, "[UniVoiceBrowser] 日本語版吹き替え同期再生を開始しました (開始位置: ${initialPositionMs}ms)")
 
@@ -144,6 +147,7 @@ class BatchDubbingPlayer(private val context: Context) {
     fun stopDubbing() {
         isDubbingActive = false
         currentPlayingIndex = -1
+        lastVideoPositionMs = -1L
         stopCurrentMediaPlayer()
         onPlaybackStateChanged?.invoke(false)
         Log.i(TAG, "[UniVoiceBrowser] 日本語版吹き替え同期再生を停止しました")
@@ -159,6 +163,17 @@ class BatchDubbingPlayer(private val context: Context) {
             // 動画が停止されたら吹き替え音声も一時停止
             pauseDubbing()
             return
+        }
+
+        // シーク検知 (前回の再生位置から急激にジャンプした場合、または巻き戻った場合)
+        val isSeekDetected = lastVideoPositionMs != -1L &&
+                (currentTimeMs < lastVideoPositionMs - 500L || currentTimeMs > lastVideoPositionMs + 2500L)
+        lastVideoPositionMs = currentTimeMs
+
+        if (isSeekDetected) {
+            Log.d(TAG, "[UniVoiceBrowser] シーク操作検知: position=${currentTimeMs}ms (直前音声をリセット)")
+            currentPlayingIndex = -1
+            stopCurrentMediaPlayer()
         }
 
         // 現在の動画再生位置に合致するセグメントを検索
@@ -183,10 +198,17 @@ class BatchDubbingPlayer(private val context: Context) {
         } else {
             // セグメント間の無音区間
             if (currentPlayingIndex != -1) {
-                val lastSeg = segments.getOrNull(currentPlayingIndex)
-                if (lastSeg != null && currentTimeMs > lastSeg.endMs + 1000L) {
-                    currentPlayingIndex = -1
-                    stopCurrentMediaPlayer()
+                val lastSeg = segments.find { it.index == currentPlayingIndex } ?: segments.getOrNull(currentPlayingIndex)
+                if (lastSeg != null) {
+                    if (currentTimeMs < lastSeg.startMs - 500L || currentTimeMs > lastSeg.endMs + 3000L) {
+                        // セグメント時間から大幅に離脱した場合は停止
+                        currentPlayingIndex = -1
+                        stopCurrentMediaPlayer()
+                    } else if (mediaPlayer?.isPlaying != true) {
+                        // 話し終わっていればリセット
+                        currentPlayingIndex = -1
+                        stopCurrentMediaPlayer()
+                    }
                 }
             }
         }
@@ -220,6 +242,7 @@ class BatchDubbingPlayer(private val context: Context) {
                 }
                 setOnCompletionListener {
                     Log.d(TAG, "[UniVoiceBrowser] セグメント #${segment.index} 音声再生終了")
+                    stopCurrentMediaPlayer()
                 }
                 setOnErrorListener { mp, what, extra ->
                     Log.e(TAG, "[UniVoiceBrowser] MediaPlayer エラー: what=$what, extra=$extra")

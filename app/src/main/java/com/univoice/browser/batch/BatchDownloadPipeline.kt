@@ -274,7 +274,7 @@ class BatchDownloadPipeline(
                     )
                 }
                 if (idx > 0) {
-                    kotlinx.coroutines.delay(40L)
+                    kotlinx.coroutines.delay(60L)
                 }
                 val audioFile = File(videoOutputDir, "dubbing_${segment.index}.mp3")
                 synthesizeSegmentAudioToFile(segment.translatedText.ifBlank { segment.originalText }, audioFile, segment.durationSec)
@@ -431,150 +431,142 @@ class BatchDownloadPipeline(
         segments: List<TimedSegment>,
         videoTitle: String
     ): List<TimedSegment> {
-        if (geminiApiKey.isBlank()) {
-            // APIキーがない場合は無料Web翻訳エンジンで高品質翻訳
-            Log.i(TAG, "[UniVoiceBrowser] Gemini APIキー未設定のため、無料Web翻訳エンジンを実行します")
-            segments.forEach { seg ->
-                try {
-                    val res = freeWebTranslation.translate(seg.originalText, emptyList())
-                    val translated = res.getOrNull()
-                    if (!translated.isNullOrBlank()) {
-                        val maxChars = seg.maxRecommendedJapaneseChars
-                        seg.translatedText = if (translated.length > maxChars * 1.5) {
-                            translated.take((maxChars * 1.3).toInt()) + "…"
-                        } else {
-                            translated
-                        }
-                    } else {
-                        seg.translatedText = ""
-                    }
-                } catch (e: Exception) {
-                    if (e is kotlinx.coroutines.CancellationException) throw e
-                    seg.translatedText = ""
-                }
-            }
-            return segments
-        }
+        val chunkSize = 30
+        val chunks = segments.chunked(chunkSize)
+        val totalChunks = chunks.size
 
-        // プロンプト構築：各セグメントのインデックス、許容秒数、推奨文字数、原文
-        val promptBuilder = StringBuilder()
-        promptBuilder.append("あなたは動画吹き替え専門のプロ翻訳者です。\n")
-        promptBuilder.append("動画タイトル: 「$videoTitle」\n")
-        promptBuilder.append("以下の全編英語字幕を、日本語の吹き替え用音声に翻訳してください。\n\n")
-        promptBuilder.append("【絶対厳守のルール】\n")
-        promptBuilder.append("1. 各行の『目標文字数』を超えないよう、自然な話し言葉で要約・意訳してください。\n")
-        promptBuilder.append("2. 尺（秒数）内にピタリと読み切れる長さに抑えることが最優先です。\n")
-        promptBuilder.append("3. 出力は以下のJSON配列フォーマットのみを出力してください。\n")
-        promptBuilder.append("[{\"index\": 0, \"japanese\": \"翻訳文\"}, ...]\n\n")
-        promptBuilder.append("【対象セグメント一覧】\n")
+        chunks.forEachIndexed { chunkIdx, chunkSegments ->
+            val chunkStartProgress = 30 + ((chunkIdx.toFloat() / totalChunks) * 70).toInt()
+            val chunkEndProgress = 30 + (((chunkIdx + 1).toFloat() / totalChunks) * 70).toInt()
 
-        segments.forEach { seg ->
-            promptBuilder.append("・[ID:${seg.index}] 制限時間: ${String.format(Locale.US, "%.1f", seg.durationSec)}秒 (推奨最大文字数: ${seg.maxRecommendedJapaneseChars}字) -> \"${seg.originalText}\"\n")
-        }
-
-        val requestBodyMap = mapOf(
-            "contents" to listOf(
-                mapOf("parts" to listOf(mapOf("text" to promptBuilder.toString())))
-            ),
-            "generationConfig" to mapOf(
-                "temperature" to 0.2,
-                "responseMimeType" to "application/json"
+            _jobStatus.value = _jobStatus.value.copy(
+                transProgressPercent = chunkStartProgress.coerceAtMost(99),
+                statusMessageJapanese = "AIによる尺合わせ一括翻訳を実行中 (${chunkIdx + 1}/$totalChunks チャンク)..."
             )
-        )
 
-        val jsonBody = gson.toJson(requestBodyMap)
+            var chunkSuccess = false
 
-        // 試行するモデル候補リスト（設定されたモデルを最優先、次に最新エイリアス、v1対応名）
-        val candidateModels = listOf(
-            geminiModelName.trim(),
-            "gemini-1.5-flash-latest",
-            "gemini-1.5-flash",
-            "gemini-2.0-flash",
-            "gemini-2.0-flash-exp"
-        ).distinct().filter { it.isNotBlank() }
+            if (geminiApiKey.isNotBlank()) {
+                val promptBuilder = StringBuilder()
+                promptBuilder.append("あなたは動画吹き替え専門のプロ翻訳者です。\n")
+                promptBuilder.append("動画タイトル: 「$videoTitle」\n")
+                promptBuilder.append("以下の全編英語字幕を、日本語の吹き替え用音声に翻訳してください。\n\n")
+                promptBuilder.append("【絶対厳守のルール】\n")
+                promptBuilder.append("1. 各行の『目標文字数』を超えないよう、自然な話し言葉で要約・意訳してください。\n")
+                promptBuilder.append("2. 尺（秒数）内にピタリと読み切れる長さに抑えることが最優先です。\n")
+                promptBuilder.append("3. 出力は以下のJSON配列フォーマットのみを出力してください。\n")
+                promptBuilder.append("[{\"index\": 0, \"japanese\": \"翻訳文\"}, ...]\n\n")
+                promptBuilder.append("【対象セグメント一覧】\n")
 
-        var success = false
-        var lastErrorMsg = ""
+                chunkSegments.forEach { seg ->
+                    promptBuilder.append("・[ID:${seg.index}] 制限時間: ${String.format(Locale.US, "%.1f", seg.durationSec)}秒 (推奨最大文字数: ${seg.maxRecommendedJapaneseChars}字) -> \"${seg.originalText}\"\n")
+                }
 
-        for (model in candidateModels) {
-            val targetUrl = "${BASE_URL}$model:generateContent"
-            val request = Request.Builder()
-                .url(targetUrl)
-                .addHeader("x-goog-api-key", geminiApiKey)
-                .addHeader("Content-Type", "application/json")
-                .post(jsonBody.toRequestBody("application/json; charset=utf-8".toMediaType()))
-                .build()
+                val requestBodyMap = mapOf(
+                    "contents" to listOf(
+                        mapOf("parts" to listOf(mapOf("text" to promptBuilder.toString())))
+                    ),
+                    "generationConfig" to mapOf(
+                        "temperature" to 0.2,
+                        "responseMimeType" to "application/json"
+                    )
+                )
 
-            try {
-                httpClient.newCall(request).execute().use { response ->
-                    if (!response.isSuccessful) {
-                        val err = response.body?.string() ?: ""
-                        lastErrorMsg = "モデル $model エラー (HTTP ${response.code}): $err"
-                        Log.w(TAG, "[UniVoiceBrowser] $lastErrorMsg")
-                        return@use // 次のモデル候補へ
-                    }
-                    val responseString = response.body?.string() ?: return@use
-                    val root = gson.fromJson(responseString, Map::class.java)
-                    val candidates = root["candidates"] as? List<*>
-                    val firstCandidate = candidates?.firstOrNull() as? Map<*, *>
-                    val content = firstCandidate?.get("content") as? Map<*, *>
-                    val parts = content?.get("parts") as? List<*>
-                    val firstPart = parts?.firstOrNull() as? Map<*, *>
-                    val jsonText = firstPart?.get("text") as? String ?: ""
+                val jsonBody = gson.toJson(requestBodyMap)
 
-                    if (jsonText.isNotBlank()) {
-                        try {
-                            val type = object : TypeToken<List<Map<String, Any>>>() {}.type
-                            val parsedList: List<Map<String, Any>> = gson.fromJson(jsonText, type)
+                val candidateModels = listOf(
+                    geminiModelName.trim(),
+                    "gemini-1.5-flash-latest",
+                    "gemini-1.5-flash",
+                    "gemini-2.0-flash",
+                    "gemini-2.0-flash-exp"
+                ).distinct().filter { it.isNotBlank() }
 
-                            val translationMap = mutableMapOf<Int, String>()
-                            parsedList.forEach { item ->
-                                val idx = (item["index"] as? Number)?.toInt() ?: -1
-                                val jp = item["japanese"] as? String ?: ""
-                                if (idx >= 0) translationMap[idx] = jp
+                for (model in candidateModels) {
+                    val targetUrl = "${BASE_URL}$model:generateContent"
+                    val request = Request.Builder()
+                        .url(targetUrl)
+                        .addHeader("x-goog-api-key", geminiApiKey)
+                        .addHeader("Content-Type", "application/json")
+                        .post(jsonBody.toRequestBody("application/json; charset=utf-8".toMediaType()))
+                        .build()
+
+                    try {
+                        httpClient.newCall(request).execute().use { response ->
+                            if (!response.isSuccessful) {
+                                val err = response.body?.string() ?: ""
+                                Log.w(TAG, "[UniVoiceBrowser] チャンク ${chunkIdx + 1} モデル $model エラー (HTTP ${response.code}): $err")
+                                return@use
                             }
+                            val responseString = response.body?.string() ?: return@use
+                            val root = gson.fromJson(responseString, Map::class.java)
+                            val candidates = root["candidates"] as? List<*>
+                            val firstCandidate = candidates?.firstOrNull() as? Map<*, *>
+                            val content = firstCandidate?.get("content") as? Map<*, *>
+                            val parts = content?.get("parts") as? List<*>
+                            val firstPart = parts?.firstOrNull() as? Map<*, *>
+                            val jsonText = firstPart?.get("text") as? String ?: ""
 
-                            segments.forEach { seg ->
-                                seg.translatedText = translationMap[seg.index] ?: seg.originalText
+                            if (jsonText.isNotBlank()) {
+                                try {
+                                    val type = object : TypeToken<List<Map<String, Any>>>() {}.type
+                                    val parsedList: List<Map<String, Any>> = gson.fromJson(jsonText, type)
+
+                                    val translationMap = mutableMapOf<Int, String>()
+                                    parsedList.forEach { item ->
+                                        val idx = (item["index"] as? Number)?.toInt() ?: -1
+                                        val jp = item["japanese"] as? String ?: ""
+                                        if (idx >= 0) translationMap[idx] = jp
+                                    }
+
+                                    chunkSegments.forEach { seg ->
+                                        seg.translatedText = translationMap[seg.index] ?: seg.originalText
+                                    }
+                                    chunkSuccess = true
+                                    Log.i(TAG, "[UniVoiceBrowser] Geminiチャンク翻訳成功: ${chunkIdx + 1}/$totalChunks (モデル: $model)")
+                                } catch (e: Exception) {
+                                    Log.w(TAG, "[UniVoiceBrowser] JSONパース失敗 (チャンク ${chunkIdx + 1}): ${e.message}")
+                                }
                             }
-                            success = true
-                            Log.i(TAG, "[UniVoiceBrowser] Geminiバッチ一括翻訳成功 (モデル: $model)")
-                        } catch (e: Exception) {
-                            Log.w(TAG, "[UniVoiceBrowser] JSONパース失敗、次のモデルまたはフォールバックへ: ${e.message}")
                         }
+                        if (chunkSuccess) break
+                    } catch (e: Exception) {
+                        if (e is kotlinx.coroutines.CancellationException) throw e
+                        Log.w(TAG, "[UniVoiceBrowser] 通信例外 (チャンク ${chunkIdx + 1}, モデル $model): ${e.message}")
                     }
                 }
-                if (success) break
-            } catch (e: Exception) {
-                if (e is kotlinx.coroutines.CancellationException) throw e
-                lastErrorMsg = "モデル $model 通信例外: ${e.message}"
-                Log.w(TAG, "[UniVoiceBrowser] $lastErrorMsg")
             }
-        }
 
-        // Gemini呼び出しが全滅した場合は内蔵FreeWebTranslationEngineへ自動フォールバック（ゼロクラッシュ保護）
-        if (!success) {
-            Log.w(TAG, "[UniVoiceBrowser] Gemini APIが利用できないため、内蔵無料Web翻訳エンジンに自動フォールバックします ($lastErrorMsg)")
-            segments.forEach { seg ->
-                try {
-                    val res = freeWebTranslation.translate(seg.originalText, emptyList())
-                    val translated = res.getOrNull()
-                    if (!translated.isNullOrBlank()) {
-                        // 尺制約（推奨最大文字数）に合わせて安全にトリミング調整
-                        val maxChars = seg.maxRecommendedJapaneseChars
-                        seg.translatedText = if (translated.length > maxChars * 1.5) {
-                            translated.take((maxChars * 1.3).toInt()) + "…"
+            // Gemini API 未設定または失敗時は無料Web翻訳エンジンで安全フォールバック
+            if (!chunkSuccess) {
+                Log.w(TAG, "[UniVoiceBrowser] チャンク ${chunkIdx + 1} を無料Web翻訳エンジンで翻訳します")
+                chunkSegments.forEachIndexed { sIdx, seg ->
+                    if (sIdx > 0) {
+                        kotlinx.coroutines.delay(60L) // 429レートリミット防止
+                    }
+                    try {
+                        val res = freeWebTranslation.translate(seg.originalText, emptyList())
+                        val translated = res.getOrNull()
+                        if (!translated.isNullOrBlank()) {
+                            val maxChars = seg.maxRecommendedJapaneseChars
+                            seg.translatedText = if (translated.length > maxChars * 1.5) {
+                                translated.take((maxChars * 1.3).toInt()) + "…"
+                            } else {
+                                translated
+                            }
                         } else {
-                            translated
+                            seg.translatedText = seg.originalText
                         }
-                    } else {
-                        seg.translatedText = ""
+                    } catch (e: Exception) {
+                        if (e is kotlinx.coroutines.CancellationException) throw e
+                        seg.translatedText = seg.originalText
                     }
-                } catch (e: Exception) {
-                    if (e is kotlinx.coroutines.CancellationException) throw e
-                    seg.translatedText = ""
                 }
             }
+
+            _jobStatus.value = _jobStatus.value.copy(
+                transProgressPercent = chunkEndProgress.coerceAtMost(100)
+            )
         }
 
         return segments
@@ -660,13 +652,15 @@ class BatchDownloadPipeline(
             return
         }
 
-        val encodedText = URLEncoder.encode(cleanText, "UTF-8")
+        // Google TTS URL長制限対策 (150文字以内の安全長に収める)
+        val safeText = if (cleanText.length > 150) cleanText.take(150) else cleanText
+        val encodedText = URLEncoder.encode(safeText, "UTF-8")
         val streamUrl = "https://translate.google.com/translate_tts?ie=UTF-8&tl=ja&client=tw-ob&q=$encodedText"
 
-        for (attempt in 0..1) {
+        for (attempt in 0..2) {
             try {
                 if (attempt > 0) {
-                    Thread.sleep(250L * attempt)
+                    Thread.sleep(300L * attempt)
                 }
                 val request = Request.Builder()
                     .url(streamUrl)
@@ -695,8 +689,8 @@ class BatchDownloadPipeline(
             }
         }
 
-        // フォールバック: 有音のPCM WAV波形を生成
-        writeAudibleWavFile(outputFile, durationSec)
+        // フォールバック: ビープ音ではなく安全な無音WAVを書き込み、不快な高周波ノイズを防止
+        writeSilentWavFile(outputFile, durationSec)
     }
 
     /**

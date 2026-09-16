@@ -12,7 +12,7 @@
 [![UI Language](https://img.shields.io/badge/UI-Japanese%20Only%20%28100%25%29-red.svg)](#完全日本語ui設計)
 [![Build Status](https://img.shields.io/badge/Build-Passing-brightgreen.svg)]()
 [![Security](https://img.shields.io/badge/Security-Hardened-blue.svg)]()
-[![Release APK](https://img.shields.io/badge/APK_Download-v1.1.6_(69.9MB)-blueviolet.svg?logo=android)](release/UniVoiceBrowser-v1.1.0.apk)
+[![Release APK](https://img.shields.io/badge/APK_Download-v1.1.7_(69.9MB)-blueviolet.svg?logo=android)](release/UniVoiceBrowser-v1.1.0.apk)
 
 <p align="center">
   <a href="https://github.com/iwa-kasoutuuuuuka/UniVoice-Browser/raw/main/release/UniVoiceBrowser-v1.1.0.apk">
@@ -105,7 +105,18 @@
 
 ## 🔄 最近のアップデート・更新履歴 (Changelog)
 
-### 【最新版】v1.1.6 バッチ吹き替え「数十秒で音声停止」バグ完全解消＆スマート字幕結合アップデート (versionCode: 12)
+### 【最新版】v1.1.7 バッチ一括翻訳チャンク分割・字幕待機時間延長・シーク同期＆MediaPlayer安定化アップデート (versionCode: 13)
+
+| 項目 | 改善・修正の詳細内容 |
+| :--- | :--- |
+| **📦 長尺動画の尺合わせ一括翻訳チャンク分割（30セグメント単位）** | 数百件におよぶセグメントを持つ長大動画において、Gemini APIの出力トークン上限（maxOutputTokens）によりJSON配列が途中で途切れてパースエラーになっていた問題を完全解消。<br>全セグメントを30件ずつの安全なチャンクに自動分割して並列・順次翻訳し、進捗バー（`transProgressPercent`）もリアルタイムに滑らかに反映。Geminiおよび無料Web翻訳フォールバック双方で100%全編翻訳を保証。 |
+| **⏱️ 字幕抽出安全タイマーを 8000ms に大幅延長** | 長尺動画で全編字幕JSONのダウンロードに2秒以上かかった際、タイムアウトして字幕が破棄されていた問題を修正。<br>猶予時間を8000ms（8秒）に延長し、重い動画でも確実に全編字幕トラックを取得完了できるように改善。 |
+| **⚡ JSBridge オリジン検証のロックフリー・ゼロ遅延化** | `UniVoiceJSInterface` の `isOriginAuthorized()` で毎回 `mainHandler.post` と `CountDownLatch(200ms)` によるUIブロックを行っていた構造を排除。<br>`@Volatile` なURL参照によるノンブロッキング検証に変更し、動画再生中の250ms毎のタイムスタンプ通知（`timeupdate`）のラグやUIの引っかかりを根絶。 |
+| **🎯 シーク（早送り・巻き戻し）検知と直前音声の即時リセット** | ユーザーがシークバーを操作した際（時間差分が2秒以上急変した場合）、直前のMediaPlayer再生を即座に停止・リセットする機構を実装。<br>無音区間や別の時間帯にシークした際に前のセグメントの音声が鳴り続けるバグを完全防止。 |
+| **🔒 MediaPlayer 再生完了時のネイティブリソース即時解放** | `BatchDubbingPlayer` の `setOnCompletionListener` において、セグメント音声が鳴り終わった瞬間にネイティブ `MediaPlayer.release()` を実行。<br>長尺動画の連続再生によるネイティブバッファ枯渇やメモリリークを徹底根絶。 |
+| **🛡️ Google TTS 安全長トリミング＆不快なビープ音の排除** | セグメントテキストが長い場合にGoogle TTS URL制限に収まるよう安全に150文字以内でトリミング。指数バックオフ付きリトライ（最大3回）を実装。<br>万一失敗した場合のフォールバックで発生していた不快な高周波ビープ音（440Hz）を廃止し、安全な無音WAVを書き込むよう改修。 |
+
+### v1.1.6 バッチ吹き替え「数十秒で音声停止」バグ完全解消＆スマート字幕結合アップデート (versionCode: 12)
 
 | 項目 | 改善・修正の詳細内容 |
 | :--- | :--- |

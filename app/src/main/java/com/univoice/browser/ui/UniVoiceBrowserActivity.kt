@@ -818,13 +818,13 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
         binding.pbBatchProgress.progress = 5
         binding.tvBatchProgressText.text = "YouTube字幕データの抽出を試行中..."
 
-        // 安全タイマー: JavaScriptからの応答が2000ms以内に来ない場合の自動フォールバック
+        // 安全タイマー: JavaScriptからの応答が8000ms以内に来ない場合の自動フォールバック
         android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
             if (isBatchExtractionPending) {
-                Log.w(TAG, "[UniVoiceBrowser] 字幕抽出スクリプトの応答タイムアウト(2000ms)。直接フォールバック処理を実行します")
+                Log.w(TAG, "[UniVoiceBrowser] 字幕抽出スクリプトの応答タイムアウト(8000ms)。直接フォールバック処理を実行します")
                 handleExtractedBatchCaptions(null)
             }
-        }, 2000)
+        }, 8000)
 
         // まずWebページ内の字幕データを抽出試行（字幕がある場合は最速かつ無料/API消費ゼロで高品質バッチ生成）
         binding.wvBrowser.evaluateJavascript(
