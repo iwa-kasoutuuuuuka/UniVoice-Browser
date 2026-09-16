@@ -12,7 +12,7 @@
 [![UI Language](https://img.shields.io/badge/UI-Japanese%20Only%20%28100%25%29-red.svg)](#完全日本語ui設計)
 [![Build Status](https://img.shields.io/badge/Build-Passing-brightgreen.svg)]()
 [![Security](https://img.shields.io/badge/Security-Hardened-blue.svg)]()
-[![Release APK](https://img.shields.io/badge/APK_Download-v1.1.3_(69.9MB)-blueviolet.svg?logo=android)](release/UniVoiceBrowser-v1.1.0.apk)
+[![Release APK](https://img.shields.io/badge/APK_Download-v1.1.4_(69.9MB)-blueviolet.svg?logo=android)](release/UniVoiceBrowser-v1.1.0.apk)
 
 <p align="center">
   <a href="https://github.com/iwa-kasoutuuuuuka/UniVoice-Browser/raw/main/release/UniVoiceBrowser-v1.1.0.apk">
@@ -105,7 +105,17 @@
 
 ## 🔄 最近のアップデート・更新履歴 (Changelog)
 
-### 【最新版】v1.1.3 ソース全体 徹底デバッグ・30件バグ修正アップデート (versionCode: 9)
+### 【最新版】v1.1.4 デバッグ専用スキル配備＆潜在リソースリーク・コルーチン制御修正 (versionCode: 10)
+
+| 項目 | 改善・修正の詳細内容 |
+| :--- | :--- |
+| **🛠️ プロジェクト専用デバッグスキル (`android-kotlin-debug`) の新設** | 過去30件以上のバグ分析から抽出した「5つの根本原因パターン」「5ステップデバッグ手順」「コードレビュー用チェックリスト」「T1〜T9頻出修正テンプレート」「定期メンテナンス手順」を `.agents/skills/android-kotlin-debug/` に体系化・配備。<br>今後の開発・保守において同様のバグ再発を構造的に防止。 |
+| **🔒 OkHttp Response ソケットリーク完全根絶 (`CloudEdgeTtsEngine`)** | クラウドTTS取得処理において、レスポンスハンドリングを `.use { response -> ... }` で厳格に保護。<br>エラー時やストリーム読取完了後のコネクションプール枯渇・ソケットリークを根絶。 |
+| **⚡ MediaPlayer ネイティブリソース解放漏れの二重保護 (`CloudEdgeTtsEngine` / `BatchDubbingPlayer`)** | `CloudEdgeTtsEngine` の `setOnErrorListener` 内で確実に `mp.release()` を実行し、`mediaPlayer = null` でクリーンアップ。<br>`BatchDubbingPlayer` の `stopDubbing()` においても個別 try/catch で保護された `stopCurrentMediaPlayer()` に一元化し、停止時のネイティブインスタンスリークを完全解消。 |
+| **🛑 コルーチン CancellationException 再スロー徹底 (`BatchDownloadPipeline`)** | 翻訳フォールバックおよびTTS音声ファイル合成ループ内の `catch (e: Exception)` ブロックに `if (e is CancellationException) throw e` を追加。<br>ユーザーが動画視聴ページを離脱した際、無駄な通信・CPU処理がバックグラウンドで続行される問題を解消。 |
+| **📁 一時音声ダウンロード時の空ファイル生成保証 (`BatchDownloadPipeline`)** | `downloadTemporaryAudio()` において、ストリームボディが空の場合でも0バイトのファイル存在を保証し、後続の文字起こし処理での `FileNotFoundException` を防止。 |
+
+### v1.1.3 ソース全体 徹底デバッグ・30件バグ修正アップデート (versionCode: 9)
 
 4つの専門レビューサブエージェントによるコード全体の静的解析で30件のバグを発見し、全件修正。
 
@@ -736,7 +746,20 @@ e:/UniVoice Browser/
 
 ## 🔍 デバッグと動作検証
 
-### 1. ワンクリック・エミュレーター自動セットアップ (`setup_emulator_and_run.ps1`)
+### 1. プロジェクト専用デバッグスキル (`.agents/skills/android-kotlin-debug`)
+本リポジトリには、UniVoice Browser のアーキテクチャ（WebView + Coroutines + TTS + SharedPreferences）に特化した**専用デバッグスキル**が標準配備されています。
+AIアシスタント（Antigravity等）に「デバッグして」「落ちる」と指示するだけで、本スキルが自動的にロードされ、以下の体系化された手順書に基づき高精度なコード監査・安全な修正を実行します：
+
+- **根本原因パターン5分類 (`references/root_causes.md`)**:
+  過去のバグから抽出した「スレッド安全性違反」「Coroutinesキャンセル誤キャッチ」「MediaPlayer等のネイティブリーク」「データ永続化漏れ」「Kotlin/Java型安全性」の再現原因と防止策。
+- **5ステップデバッグ手順 (`references/debug_steps.md`)**:
+  事象言語化 → 原因分類絞り込み → 3大仮説立案 → 最小修正 → ビルド検証。
+- **コードレビュー用チェックリスト (`references/checklist.md`)**:
+  新機能追加時やPRレビュー時に漏れなくチェックできるA〜Eの項目リスト。
+- **頻出修正テンプレート (`references/templates.md`)**:
+  JavaBridgeスレッド委譲、MediaPlayer独立try/catch、suspendCancellableCoroutine化など、コピペで安全に適用できるT1〜T9の修正テンプレート。
+
+### 2. ワンクリック・エミュレーター自動セットアップ (`setup_emulator_and_run.ps1`)
 本リポジトリには、Google 公式の Android CLI を利用して軽量な **Google ATD（Automated Test Device）** システムイメージを自動インストールし、Poco F6 Pro 相当の仮想デバイスを作成・起動するスクリプトが用意されています：
 
 ```powershell
@@ -746,7 +769,7 @@ e:/UniVoice Browser/
 > [!TIP]
 > ATD イメージは不要な Google Play バックグラウンドサービスが削ぎ落とされており、**通常のPlayストアイメージに比べてメモリ消費が1/3、起動速度が約3倍高速**です。
 
-### 2. リアルタイムログの監視
+### 3. リアルタイムログの監視
 UniVoice Browser の全パイプライン処理には `[UniVoiceBrowser]` プレフィックスが付与されています。Logcat で以下のフィルタを指定することで、字幕取得・翻訳・動的リップシンク速度・音声合成の流れを一目で追跡できます：
 
 ```bash
@@ -763,7 +786,7 @@ D/AudioTrackPlayer: [UniVoiceBrowser] AudioTrack初期化完了 (バッファサ
 D/UniVoicePipelineMgr: [UniVoiceBrowser] 先読み翻訳完了: [Next, let's look at the benchmarks...] -> [次にベンチマークスコアを見ていきましょう。]
 ```
 
-### 3. 全画面（最大化）切り替え＆タッチレスポンスの検証
+### 4. 全画面（最大化）切り替え＆タッチレスポンスの検証
 全画面切り替えやJavaScriptインジェクションの挙動は、`WebChromeClient.onConsoleMessage` 経由で `UniVoiceJS` タグとしてLogcatに出力されます。以下のコマンドでリアルタイムにイベントをトレースできます：
 
 ```bash
