@@ -72,6 +72,7 @@ class DownloadedVideoRepository private constructor(private val context: Context
     /**
      * 動画の追加または進捗更新
      */
+    @Synchronized
     fun upsertItem(
         videoId: String,
         title: String,
@@ -108,6 +109,7 @@ class DownloadedVideoRepository private constructor(private val context: Context
     /**
      * 指定動画の削除（キャッシュファイル含む）
      */
+    @Synchronized
     fun deleteItem(videoId: String) {
         val item = itemsList.find { it.videoId == videoId }
         if (item != null) {
@@ -130,6 +132,7 @@ class DownloadedVideoRepository private constructor(private val context: Context
     /**
      * 全動画の削除
      */
+    @Synchronized
     fun clearAll() {
         itemsList.clear()
         saveItems()

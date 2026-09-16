@@ -68,28 +68,42 @@ class UniVoicePlaybackService : Service() {
 
     override fun onBind(intent: Intent?): IBinder = binder
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        // OS契約保護: startForegroundService() が呼ばれた場合、システムは startForeground() の即座の呼び出しを厳格に要求する。
-        // ACTION_STOP やエラー時であっても、必ず一度 startForeground() を通過させてから終了することで
-        // ForegroundServiceDidNotStartInTimeException によるアプリ致命的クラッシュを 100% 防止する。
-        val notification = buildNotification("YouTube日本語音声をバックグラウンド再生中")
-        try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                startForeground(
-                    NOTIFICATION_ID,
-                    notification,
-                    android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
-                )
-            } else {
-                startForeground(NOTIFICATION_ID, notification)
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "[UniVoiceBrowser] startForeground初回呼出エラー: ${e.message}", e)
-        }
+    private var isForegroundStarted = false
 
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
+            if (!isForegroundStarted) {
+                val notification = buildNotification("YouTube日本語音声をバックグラウンド再生中")
+                try {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        startForeground(NOTIFICATION_ID, notification, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK)
+                    } else {
+                        startForeground(NOTIFICATION_ID, notification)
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "[UniVoiceBrowser] startForeground初回呼出エラー: ${e.message}", e)
+                }
+            }
             stopForegroundService()
             return START_NOT_STICKY
+        }
+
+        if (!isForegroundStarted) {
+            val notification = buildNotification("YouTube日本語音声をバックグラウンド再生中")
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    startForeground(
+                        NOTIFICATION_ID,
+                        notification,
+                        android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
+                    )
+                } else {
+                    startForeground(NOTIFICATION_ID, notification)
+                }
+                isForegroundStarted = true
+            } catch (e: Exception) {
+                Log.e(TAG, "[UniVoiceBrowser] startForeground初回呼出エラー: ${e.message}", e)
+            }
         }
 
         Log.i(TAG, "[UniVoiceBrowser] バックグラウンド再生フォアグラウンドサービスを正常稼働開始しました")

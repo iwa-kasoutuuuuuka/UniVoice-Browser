@@ -11,6 +11,9 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.util.concurrent.TimeUnit
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
+import kotlinx.coroutines.suspendCancellableCoroutine
 
 /**
  * Google Gemini クラウドAPIを用いた高精度・文脈認識翻訳エンジン
@@ -103,7 +106,7 @@ class CloudGeminiTranslationEngine(
                         .build()
 
                     try {
-                        val result = httpClient.newCall(request).execute().use { response ->
+                        val result = httpClient.executeSuspend(request).use { response ->
                             if (!response.isSuccessful) {
                                 val errorBody = response.body?.string() ?: ""
                                 Log.w(TAG, "[UniVoiceBrowser] Gemini API HTTPエラー ($currentModel): コード=${response.code}, 内容=$errorBody")
@@ -183,4 +186,17 @@ class CloudGeminiTranslationEngine(
     private data class GeminiCandidate(
         @SerializedName("content") val content: GeminiContent?
     )
+}
+
+private suspend fun OkHttpClient.executeSuspend(request: Request): okhttp3.Response = suspendCancellableCoroutine { cont ->
+    val call = newCall(request)
+    cont.invokeOnCancellation { call.cancel() }
+    call.enqueue(object : okhttp3.Callback {
+        override fun onFailure(call: okhttp3.Call, e: java.io.IOException) {
+            if (cont.isActive) cont.resumeWithException(e)
+        }
+        override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
+            if (cont.isActive) cont.resume(response)
+        }
+    })
 }

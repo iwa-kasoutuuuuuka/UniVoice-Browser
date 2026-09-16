@@ -50,6 +50,14 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
     private var batchPlayer: com.univoice.browser.batch.BatchDubbingPlayer? = null
     private var completedBatchSegments: List<com.univoice.browser.batch.TimedSegment>? = null
 
+    // BUG-C02: ページロード完了後に実行する吹き替え再生キュー
+    private var pendingDubbingPlayback: (() -> Unit)? = null
+
+    // BUG-H02: ダウンロードリストダイアログ参照 (WindowLeaked防止)
+    private var downloadedVideosDialog: com.google.android.material.bottomsheet.BottomSheetDialog? = null
+    // BUG-H01: ダウンロードリストFlow監視ジョブ
+    private var downloadedListJob: kotlinx.coroutines.Job? = null
+
     // フローティング字幕カード状態管理
     private var isCardMinimized: Boolean = false
     private var isDockedTop: Boolean = false
@@ -548,7 +556,7 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
                 }
             },
             onBatchCaptionsExtractedCallback = { jsonPayload ->
-                handleExtractedBatchCaptions(jsonPayload)
+                runOnUiThread { handleExtractedBatchCaptions(jsonPayload) }
             }
         )
         webView.addJavascriptInterface(jsInterface, UniVoiceJSInterface.INTERFACE_NAME)
@@ -571,6 +579,13 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
                 }
                 binding.progressBar.visibility = View.GONE
                 checkAndInjectYouTubeScripts(url)
+
+                // BUG-C02: ページロード完了後に保留中の吹き替え再生を実行
+                pendingDubbingPlayback?.let { action ->
+                    pendingDubbingPlayback = null
+                    // YouTube のプレイヤー初期化を待つために少し遅延
+                    view?.postDelayed({ action() }, 1500)
+                }
             }
 
             override fun doUpdateVisitedHistory(view: WebView?, url: String?, isReload: Boolean) {
@@ -1119,6 +1134,7 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
         val dialogView = layoutInflater.inflate(R.layout.dialog_downloaded_videos, null)
         val dialog = com.google.android.material.bottomsheet.BottomSheetDialog(this)
         dialog.setContentView(dialogView)
+        downloadedVideosDialog = dialog // BUG-H02: 参照保持
 
         val rv = dialogView.findViewById<androidx.recyclerview.widget.RecyclerView>(R.id.rvDownloadedVideos)
         val tvEmpty = dialogView.findViewById<TextView>(R.id.tvEmptyDownloadedList)
@@ -1139,7 +1155,9 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
         )
         rv.adapter = adapter
 
-        lifecycleScope.launch {
+        // BUG-H01: Flow collectorをダイアログライフサイクルに紐付け
+        downloadedListJob?.cancel()
+        downloadedListJob = lifecycleScope.launch {
             repo.itemsFlow.collectLatest { list ->
                 runOnUiThread {
                     adapter.submitList(list)
@@ -1152,6 +1170,13 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
                     }
                 }
             }
+        }
+
+        // BUG-H01: ダイアログ閉じた時にFlow collectorをキャンセル
+        dialog.setOnDismissListener {
+            downloadedListJob?.cancel()
+            downloadedListJob = null
+            downloadedVideosDialog = null
         }
 
         dialog.show()
@@ -1175,27 +1200,33 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
             binding.tvTranslatedSubtitle.text = "▶ 日本語吹き替え版を再生中: ${item.title}"
         }
 
-        // URLが現在の動画と異なる場合はWebView遷移
-        if (binding.wvBrowser.url != targetUrl) {
-            loadInputUrl(targetUrl)
+        // 再生開始をトリガーするラムダ
+        val startPlayback: () -> Unit = {
+            binding.wvBrowser.evaluateJavascript("""
+                (function() {
+                    const v = document.querySelector('video');
+                    if (v) {
+                        v.muted = true;
+                        v.currentTime = 0;
+                        if (v.paused) v.play();
+                        return 0;
+                    }
+                    return 0;
+                })();
+            """.trimIndent()) {
+                if (loaded) {
+                    batchPlayer?.startDubbing(0L)
+                }
+            }
         }
 
-        // 再生開始をトリガー
-        binding.wvBrowser.evaluateJavascript("""
-            (function() {
-                const v = document.querySelector('video');
-                if (v) {
-                    v.muted = true;
-                    v.currentTime = 0;
-                    if (v.paused) v.play();
-                    return 0;
-                }
-                return 0;
-            })();
-        """.trimIndent()) {
-            if (loaded) {
-                batchPlayer?.startDubbing(0L)
-            }
+        // BUG-C02: URLが異なる場合はページロード完了後に再生を実行
+        if (binding.wvBrowser.url != targetUrl) {
+            pendingDubbingPlayback = startPlayback
+            loadInputUrl(targetUrl)
+        } else {
+            // 同じURLの場合は即座に再生
+            startPlayback()
         }
     }
 
@@ -1275,11 +1306,19 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         hideCustomView()
-        super.onDestroy()
+        // BUG-H02: ダイアログが開いていればdismissしてWindowLeakedを防止
+        downloadedVideosDialog?.dismiss()
+        downloadedVideosDialog = null
+        downloadedListJob?.cancel()
+        downloadedListJob = null
+        pendingDubbingPlayback = null
         com.univoice.browser.service.UniVoicePlaybackService.stop(this)
         batchPlayer?.release()
         batchPlayer = null
         pipelineManager.release()
+        // BUG-M01: WebViewリーク防止 — 親から除去してから破棄
+        (binding.wvBrowser.parent as? ViewGroup)?.removeView(binding.wvBrowser)
         binding.wvBrowser.destroy()
+        super.onDestroy() // BUG-M01: super は最後に呼ぶ
     }
 }

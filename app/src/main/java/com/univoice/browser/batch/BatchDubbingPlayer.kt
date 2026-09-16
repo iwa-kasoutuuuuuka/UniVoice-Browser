@@ -7,6 +7,9 @@ import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
+import kotlin.math.abs
 
 /**
  * 事前生成された日本語吹き替え音声（バッチキャッシュ）と
@@ -22,6 +25,7 @@ class BatchDubbingPlayer(private val context: Context) {
     private var currentPlayingIndex: Int = -1
     private var mediaPlayer: MediaPlayer? = null
     private var isDubbingActive = false
+    private var isPreparing = false
 
     var onSegmentChanged: ((TimedSegment) -> Unit)? = null
     var onPlaybackStateChanged: ((Boolean) -> Unit)? = null
@@ -51,6 +55,33 @@ class BatchDubbingPlayer(private val context: Context) {
         if (audioFiles.isEmpty()) return false
 
         val loadedSegments = mutableListOf<TimedSegment>()
+        
+        val segmentsJsonFile = File(cacheDir, "segments.json")
+        if (segmentsJsonFile.exists()) {
+            try {
+                val type = object : TypeToken<List<TimedSegment>>() {}.type
+                val parsedSegments: List<TimedSegment> = Gson().fromJson(segmentsJsonFile.readText(), type)
+                
+                parsedSegments.forEach { seg ->
+                    val matchingFile = audioFiles.find { it.nameWithoutExtension.substringAfter("dubbing_").toIntOrNull() == seg.index }
+                    loadedSegments.add(
+                        TimedSegment(
+                            index = seg.index,
+                            startMs = seg.startMs,
+                            endMs = seg.endMs,
+                            originalText = seg.originalText,
+                            translatedText = seg.translatedText,
+                            generatedAudioFile = matchingFile ?: seg.generatedAudioFile
+                        )
+                    )
+                }
+                loadSegments(loadedSegments)
+                return true
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to parse segments.json", e)
+            }
+        }
+
         var startMs = 0L
         audioFiles.forEachIndexed { idx, file ->
             val durationMs = 4000L
@@ -136,9 +167,9 @@ class BatchDubbingPlayer(private val context: Context) {
         }
 
         // 現在の動画再生位置に合致するセグメントを検索
-        val matchingSegment = segments.find { seg ->
+        val matchingSegment = segments.filter { seg ->
             currentTimeMs >= seg.startMs - 300L && currentTimeMs <= seg.endMs + 600L
-        }
+        }.minByOrNull { abs(currentTimeMs - it.startMs) }
 
         if (matchingSegment != null) {
             if (matchingSegment.index != currentPlayingIndex) {
@@ -148,7 +179,7 @@ class BatchDubbingPlayer(private val context: Context) {
                 onSegmentChanged?.invoke(matchingSegment)
             } else {
                 // 同じセグメント内で動画が再開された場合
-                if (mediaPlayer != null && !mediaPlayer!!.isPlaying) {
+                if (mediaPlayer != null && !mediaPlayer!!.isPlaying && !isPreparing) {
                     try {
                         mediaPlayer?.start()
                     } catch (_: Exception) {}
@@ -185,6 +216,7 @@ class BatchDubbingPlayer(private val context: Context) {
                 setVolume(1.0f, 1.0f)
                 setDataSource(audioFile.absolutePath)
                 setOnPreparedListener { mp ->
+                    isPreparing = false
                     if (offsetMs in 1 until mp.duration) {
                         mp.seekTo(offsetMs.toInt())
                     }
@@ -194,13 +226,20 @@ class BatchDubbingPlayer(private val context: Context) {
                 setOnCompletionListener {
                     Log.d(TAG, "[UniVoiceBrowser] セグメント #${segment.index} 音声再生終了")
                 }
-                setOnErrorListener { _, what, extra ->
+                setOnErrorListener { mp, what, extra ->
                     Log.e(TAG, "[UniVoiceBrowser] MediaPlayer エラー: what=$what, extra=$extra")
+                    isPreparing = false
+                    try {
+                        mp.release()
+                    } catch (_: Exception) {}
+                    mediaPlayer = null
                     true
                 }
+                isPreparing = true
                 prepareAsync()
             }
         } catch (e: Exception) {
+            isPreparing = false
             Log.e(TAG, "[UniVoiceBrowser] セグメント #${segment.index} 再生開始例外: ${e.message}", e)
         }
     }
@@ -208,6 +247,8 @@ class BatchDubbingPlayer(private val context: Context) {
     private fun stopCurrentMediaPlayer() {
         try {
             mediaPlayer?.stop()
+        } catch (_: Exception) {}
+        try {
             mediaPlayer?.release()
         } catch (_: Exception) {}
         mediaPlayer = null

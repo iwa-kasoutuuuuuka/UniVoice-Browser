@@ -1,4 +1,4 @@
-﻿package com.univoice.browser.batch
+package com.univoice.browser.batch
 
 import android.content.Context
 import android.util.Log
@@ -24,12 +24,14 @@ object CacheCleanupManager {
         if (isStarted) return
         isStarted = true
 
+        val appContext = context.applicationContext
+
         scope.launch(Dispatchers.IO) {
             while (isActive) {
                 try {
-                    val config = UniVoiceConfigManager.getInstance(context).currentSettings
+                    val config = UniVoiceConfigManager.getInstance(appContext).currentSettings
                     val pipeline = BatchDownloadPipeline(
-                        context = context,
+                        context = appContext,
                         geminiApiKey = config.geminiApiKey,
                         batchApproach = config.batchApproach
                     )

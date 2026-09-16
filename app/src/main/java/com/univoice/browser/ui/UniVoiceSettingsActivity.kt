@@ -186,7 +186,7 @@ class UniVoiceSettingsActivity : AppCompatActivity() {
                     android.content.Intent.ACTION_VIEW,
                     android.net.Uri.parse("https://aistudio.google.com/app/apikey")
                 )
-                startActivity(intent)
+                startActivity(android.content.Intent.createChooser(intent, "ブラウザを選択"))
             } catch (e: Exception) {
                 Toast.makeText(this, "ブラウザの起動に失敗しました: https://aistudio.google.com/app/apikey", Toast.LENGTH_LONG).show()
             }

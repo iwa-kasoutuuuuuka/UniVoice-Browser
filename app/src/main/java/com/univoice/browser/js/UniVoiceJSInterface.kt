@@ -31,7 +31,23 @@ class UniVoiceJSInterface(
      * オリジンの正当性を検証 (YouTubeドメインまたは初期化時を許可)
      */
     private fun isOriginAuthorized(): Boolean {
-        val currentUrl = getCurrentUrlCallback()
+        var currentUrl: String? = null
+        val latch = java.util.concurrent.CountDownLatch(1)
+        mainHandler.post {
+            try {
+                currentUrl = getCurrentUrlCallback()
+            } catch (e: Exception) {
+                Log.w(TAG, "URL取得エラー", e)
+            } finally {
+                latch.countDown()
+            }
+        }
+        try {
+            latch.await(200, java.util.concurrent.TimeUnit.MILLISECONDS)
+        } catch (e: InterruptedException) {
+            // ignore
+        }
+
         if (currentUrl.isNullOrBlank()) return true
         val authorized = YouTubeScriptInjector.isYouTubeUrl(currentUrl)
         if (!authorized) {

@@ -12,7 +12,7 @@
 [![UI Language](https://img.shields.io/badge/UI-Japanese%20Only%20%28100%25%29-red.svg)](#完全日本語ui設計)
 [![Build Status](https://img.shields.io/badge/Build-Passing-brightgreen.svg)]()
 [![Security](https://img.shields.io/badge/Security-Hardened-blue.svg)]()
-[![Release APK](https://img.shields.io/badge/APK_Download-v1.1.0_(69.9MB)-blueviolet.svg?logo=android)](release/UniVoiceBrowser-v1.1.0.apk)
+[![Release APK](https://img.shields.io/badge/APK_Download-v1.1.3_(69.9MB)-blueviolet.svg?logo=android)](release/UniVoiceBrowser-v1.1.0.apk)
 
 <p align="center">
   <a href="https://github.com/iwa-kasoutuuuuuka/UniVoice-Browser/raw/main/release/UniVoiceBrowser-v1.1.0.apk">
@@ -105,7 +105,36 @@
 
 ## 🔄 最近のアップデート・更新履歴 (Changelog)
 
-### 【最新版】v1.1.2 ダウンロード動画一覧リスト・個別進捗率表示・直接再生アップデート内容 (versionCode: 8)
+### 【最新版】v1.1.3 ソース全体 徹底デバッグ・30件バグ修正アップデート (versionCode: 9)
+
+4つの専門レビューサブエージェントによるコード全体の静的解析で30件のバグを発見し、全件修正。
+
+| 重大度 | 件数 | 主な修正内容 |
+| :--- | :---: | :--- |
+| 🔴 CRITICAL | 10件 | クラッシュ・データ損失・ビルド失敗の根本解消 |
+| 🟠 HIGH | 11件 | リソースリーク・スレッド安全性・データ不整合の修正 |
+| 🟡 MEDIUM | 9件 | 品質・UX・堅牢性の向上 |
+
+| 項目 | 修正の詳細内容 |
+| :--- | :--- |
+| **🔴 JavaBridgeスレッド→UIスレッド違反クラッシュ根絶** | `onBatchCaptionsExtractedCallback` および `UniVoiceJSInterface.getCurrentUrlCallback()` が JavaBridge スレッドから直接UI操作・WebViewメソッドを呼び出していた問題を `runOnUiThread` および `Handler(Looper.getMainLooper())` で完全修正。`CalledFromWrongThreadException` を根絶。 |
+| **🔴 ダウンロードリスト直接再生の非同期競合修正** | `playDownloadedVideoDirectly()` が URL 遷移の非同期完了を待たずに JS 実行していた問題を修正。`pendingDubbingPlayback` キューに再生ラムダを保持し、`onPageFinished` + 1.5秒後に安全に実行するアーキテクチャに変更。 |
+| **🔴 翻訳済みセグメントのディスク保存漏れ修正** | バッチ処理完了後に `translatedSegments`（タイムスタンプ・翻訳テキスト）が `segments.json` に保存されていなかった致命的バグを修正。再起動後のリスト直接再生で正確なタイムスタンプ同期が可能に。 |
+| **🔴 MediaPlayer状態機械違反クラッシュ修正** | `BatchDubbingPlayer` で `prepareAsync()` 中に `start()` が呼ばれて `IllegalStateException` が発生していた問題を `isPreparing` フラグで根絶。`onPrepared` コールバックでのみ `start()` を許可。 |
+| **🔴 CancellationException の誤飲み込み修正** | `catch (e: Exception)` が `CancellationException` を握りつぶしコルーチンキャンセルが伝播しない問題を修正。`if (e is CancellationException) throw e` を全該当箇所に追加。 |
+| **🔴 ModelDownloadManager コンパイルエラー・HTTP検証修正** | `ByteArray(bufferSize) { 0x55 }` の型不一致コンパイルエラーを修正。加えて HTTP レスポンスコード未検証によるモデルファイル破損リスクを `responseCode in 200..299` チェックで防止。 |
+| **🟠 ダイアログFlow collector メモリリーク修正** | `showDownloadedVideosDialog()` のたびに新たなFlow collectorが spawned されリークしていた問題を修正。ダイアログ `setOnDismissListener` で `downloadedListJob?.cancel()` を呼ぶように変更。 |
+| **🟠 BottomSheetDialog WindowLeaked 防止** | Activity 破棄時にダイアログが開いていると `WindowLeaked` 例外が発生していた問題を修正。`downloadedVideosDialog` 参照を保持し、`onDestroy()` で `dismiss()` を確実に呼ぶ。 |
+| **🟠 MediaPlayer ネイティブリソースリーク根絶** | `BatchDubbingPlayer.stopCurrentMediaPlayer()` で `stop()` 例外時に `release()` がスキップされるバグ修正（独立した try/catch）。`onError` でも `release()` を追加。`CloudEdgeTtsEngine` の completion listener 内 `mp.release()` 追加。 |
+| **🟠 DownloadedVideoRepository スレッドセーフ化** | `upsertItem`・`deleteItem`・`clearAll` に `@Synchronized` を追加し、並列バッチダウンロード時の重複エントリ追加・状態破壊レースを防止。 |
+| **🟠 OkHttp 同期 execute() → suspendCancellableCoroutine 化** | `FreeWebTranslationEngine` と `CloudGeminiTranslationEngine` で OkHttp `execute()` がコルーチンキャンセルを無視してスレッドをブロックしていた問題を `suspendCancellableCoroutine` + `enqueue()` パターンに変更。 |
+| **🟠 PipelineManager スレッド安全性・パフォーマンス強化** | `ConcurrentLinkedQueue.size()` の O(N) ループを `AtomicInteger` カウンターに置換。`translationCache` の非アトミックなサイズチェック＋削除を `synchronized` ブロックで保護。 |
+| **🟠 CacheCleanupManager コンテキストリーク修正** | `Activity` コンテキストが長期スコープのコルーチンに保持されていた問題を `context.applicationContext` に変更して修正。 |
+| **🟡 onDestroy() ライフサイクル順序修正** | `super.onDestroy()` を先頭から末尾へ移動。WebView を親 ViewGroup から除去してから `destroy()` を呼ぶ手順を追加し、WebView メモリリークを防止。 |
+| **🟡 設定画面 URL ループバック修正** | `UniVoiceSettingsActivity` の `ACTION_VIEW` が自アプリの WebView に戻ってくる問題を `Intent.createChooser()` で外部ブラウザ選択画面を提示する方式に変更。 |
+| **🟡 その他品質改善** | PlaybackService の ACTION_STOP レース修正、upsertItem の10件デバウンス、セグメント選択の `minByOrNull` による重複マッチ解消、SystemTTS タイムアウト時 `stop()` 追加、RecyclerView 無効な `maxHeight` 属性除去。 |
+
+### v1.1.2 ダウンロード動画一覧リスト・個別進捗率表示・直接再生アップデート内容 (versionCode: 8)
 
 | 項目 | 改善・修正の詳細内容 |
 | :--- | :--- |

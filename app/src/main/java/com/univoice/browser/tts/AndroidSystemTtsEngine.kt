@@ -165,8 +165,12 @@ class AndroidSystemTtsEngine(
 
                     val timeoutMs = ((text.length * 220L / appliedSpeed).toLong() + 1500L).coerceIn(800L, 9000L)
                     try {
-                        kotlinx.coroutines.withTimeoutOrNull(timeoutMs) {
+                        val result = kotlinx.coroutines.withTimeoutOrNull(timeoutMs) {
                             playDeferred.await()
+                            true
+                        }
+                        if (result == null) {
+                            tts?.stop()
                         }
                     } catch (_: Exception) {}
                 }

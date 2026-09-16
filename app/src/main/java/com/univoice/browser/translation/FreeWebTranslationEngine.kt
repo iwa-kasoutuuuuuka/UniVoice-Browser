@@ -12,6 +12,9 @@ import java.net.URLEncoder
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import java.util.regex.Pattern
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
+import kotlinx.coroutines.suspendCancellableCoroutine
 
 /**
  * APIキー不要で誰でも即座に利用可能な高速Web翻訳エンジン
@@ -73,7 +76,7 @@ class FreeWebTranslationEngine : TranslationEngine {
                         .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36")
                         .build()
 
-                    httpClient.newCall(request).execute().use { response ->
+                    httpClient.executeSuspend(request).use { response ->
                         if (response.isSuccessful) {
                             val body = response.body?.string() ?: ""
                             if (body.startsWith("[")) {
@@ -111,7 +114,7 @@ class FreeWebTranslationEngine : TranslationEngine {
                         .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
                         .build()
 
-                    httpClient.newCall(request).execute().use { response ->
+                    httpClient.executeSuspend(request).use { response ->
                         if (response.isSuccessful) {
                             val body = response.body?.string() ?: ""
                             val json = JSONObject(body)
@@ -140,7 +143,7 @@ class FreeWebTranslationEngine : TranslationEngine {
                         .header("User-Agent", "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36")
                         .build()
 
-                    httpClient.newCall(request).execute().use { response ->
+                    httpClient.executeSuspend(request).use { response ->
                         if (response.isSuccessful) {
                             val html = response.body?.string() ?: ""
                             val matcher = RESULT_CONTAINER_PATTERN.matcher(html)
@@ -232,4 +235,17 @@ class FreeWebTranslationEngine : TranslationEngine {
     override fun release() {
         localMemoryCache.clear()
     }
+}
+
+private suspend fun OkHttpClient.executeSuspend(request: Request): okhttp3.Response = kotlinx.coroutines.suspendCancellableCoroutine { cont ->
+    val call = newCall(request)
+    cont.invokeOnCancellation { call.cancel() }
+    call.enqueue(object : okhttp3.Callback {
+        override fun onFailure(call: okhttp3.Call, e: java.io.IOException) {
+            if (cont.isActive) cont.resumeWithException(e)
+        }
+        override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
+            if (cont.isActive) cont.resume(response)
+        }
+    })
 }

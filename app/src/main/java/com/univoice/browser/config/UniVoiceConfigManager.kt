@@ -64,19 +64,19 @@ class UniVoiceConfigManager private constructor(context: Context) {
      * 保存済みの設定を読み込み
      */
     private fun loadSettings(): UniVoiceSettings {
-        val modeId = prefs.getString(KEY_PROCESSING_MODE, ProcessingMode.HYBRID_OPTIMAL.id)
+        val modeId = prefs.getString(KEY_PROCESSING_MODE, ProcessingMode.HYBRID_OPTIMAL.id) ?: ProcessingMode.HYBRID_OPTIMAL.id
         val currentMode = ProcessingMode.fromId(modeId)
 
-        val execStyleId = prefs.getString(KEY_EXECUTION_STYLE, ExecutionStyle.STREAMING.id)
+        val execStyleId = prefs.getString(KEY_EXECUTION_STYLE, ExecutionStyle.STREAMING.id) ?: ExecutionStyle.STREAMING.id
         val executionStyle = ExecutionStyle.fromId(execStyleId)
 
-        val batchApproachId = prefs.getString(KEY_BATCH_APPROACH, BatchApproach.APPROACH_C_HYBRID.id)
+        val batchApproachId = prefs.getString(KEY_BATCH_APPROACH, BatchApproach.APPROACH_C_HYBRID.id) ?: BatchApproach.APPROACH_C_HYBRID.id
         val batchApproach = BatchApproach.fromId(batchApproachId)
 
-        val transEngineId = prefs.getString(KEY_MANUAL_TRANS_ENGINE, TranslationEngineType.GEMINI_CLOUD.id)
+        val transEngineId = prefs.getString(KEY_MANUAL_TRANS_ENGINE, TranslationEngineType.GEMINI_CLOUD.id) ?: TranslationEngineType.GEMINI_CLOUD.id
         val manualTransEngine = TranslationEngineType.fromId(transEngineId)
 
-        val ttsEngineId = prefs.getString(KEY_MANUAL_TTS_ENGINE, TtsEngineType.LOCAL_VOICEVOX_ONNX.id)
+        val ttsEngineId = prefs.getString(KEY_MANUAL_TTS_ENGINE, TtsEngineType.LOCAL_VOICEVOX_ONNX.id) ?: TtsEngineType.LOCAL_VOICEVOX_ONNX.id
         val manualTtsEngine = TtsEngineType.fromId(ttsEngineId)
 
         val apiKey = prefs.getString(KEY_GEMINI_API_KEY, "") ?: ""
@@ -90,7 +90,7 @@ class UniVoiceConfigManager private constructor(context: Context) {
         val adBlock = prefs.getBoolean(KEY_AD_BLOCK_ENABLED, true)
         val backgroundPlayback = prefs.getBoolean(KEY_BACKGROUND_PLAYBACK_ENABLED, true)
         val autoCleanHours = prefs.getLong(KEY_AUTO_CLEAN_CACHE_HOURS, 24L)
-        val voiceGenderId = prefs.getString(KEY_VOICE_GENDER, com.univoice.browser.model.VoiceGender.FEMALE.id)
+        val voiceGenderId = prefs.getString(KEY_VOICE_GENDER, com.univoice.browser.model.VoiceGender.FEMALE.id) ?: com.univoice.browser.model.VoiceGender.FEMALE.id
         val voiceGender = com.univoice.browser.model.VoiceGender.fromId(voiceGenderId)
 
         return UniVoiceSettings(

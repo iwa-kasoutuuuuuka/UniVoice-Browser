@@ -84,7 +84,7 @@ class ModelDownloadManager private constructor(context: Context) {
                 }
                 FileOutputStream(targetFile).use { fos ->
                     val bufferSize = if (filename == MODEL_WHISPER) 65536 else 4096
-                    val buffer = ByteArray(bufferSize) { 0x55 }
+                    val buffer = ByteArray(bufferSize)
                     fos.write(buffer)
                 }
             } else {
@@ -95,6 +95,11 @@ class ModelDownloadManager private constructor(context: Context) {
                     requestMethod = "GET"
                 }
                 connection.connect()
+
+                val responseCode = connection.responseCode
+                if (responseCode !in 200..299) {
+                    throw Exception("HTTP error: $responseCode")
+                }
 
                 val fileLength = connection.contentLength
                 var totalBytesRead = 0L

@@ -237,7 +237,8 @@ class BatchDownloadPipeline(
             
             // 動画トラック（映像ファイル）のキャッシュ保存
             val videoCacheFile = File(videoOutputDir, "video_cached.mp4")
-            downloadVideoCache(videoCacheFile, audioStreamUrl)
+            // BUG-C03: 映像ダウンロード自体をスキップ（オンライン再生に委ねる）
+            // downloadVideoCache(videoCacheFile, audioStreamUrl)
 
             _jobStatus.value = _jobStatus.value.copy(
                 progressPercent = 75,
@@ -258,17 +259,20 @@ class BatchDownloadPipeline(
                     videoProgressPercent = videoProgress.coerceAtMost(99),
                     statusMessageJapanese = "日本語音声を生成中 (${idx + 1}/${translatedSegments.size}件)..."
                 )
-                downloadedRepo.upsertItem(
-                    videoId = safeVideoId,
-                    title = videoTitle,
-                    videoUrl = fullUrl,
-                    audioProgress = 100,
-                    transProgress = 100,
-                    videoProgress = videoProgress.coerceAtMost(99),
-                    isCompleted = false,
-                    totalSegments = translatedSegments.size,
-                    statusMessage = "日本語音声を生成中 (${idx + 1}/${translatedSegments.size}件)..."
-                )
+                // BUG-M05: ループ内のDB更新を10セグメントごと、または最後に制限
+                if ((idx + 1) % 10 == 0 || idx == translatedSegments.size - 1) {
+                    downloadedRepo.upsertItem(
+                        videoId = safeVideoId,
+                        title = videoTitle,
+                        videoUrl = fullUrl,
+                        audioProgress = 100,
+                        transProgress = 100,
+                        videoProgress = videoProgress.coerceAtMost(99),
+                        isCompleted = false,
+                        totalSegments = translatedSegments.size,
+                        statusMessage = "日本語音声を生成中 (${idx + 1}/${translatedSegments.size}件)..."
+                    )
+                }
                 val audioFile = File(videoOutputDir, "dubbing_${segment.index}.mp3")
                 synthesizeSegmentAudioToFile(segment.translatedText.ifBlank { segment.originalText }, audioFile, segment.durationSec)
                 segment.generatedAudioFile = audioFile
@@ -285,6 +289,17 @@ class BatchDownloadPipeline(
                 "videoCacheFile" to videoCacheFile.name
             )
             metaFile.writeText(gson.toJson(metaData), Charsets.UTF_8)
+
+            // BUG-C04: translatedSegments を segments.json に保存
+            val segmentsFile = File(videoOutputDir, "segments.json")
+            val segmentsData = translatedSegments.map {
+                mapOf(
+                    "startMs" to it.startMs,
+                    "endMs" to it.endMs,
+                    "translatedText" to it.translatedText
+                )
+            }
+            segmentsFile.writeText(gson.toJson(segmentsData), Charsets.UTF_8)
 
             _jobStatus.value = _jobStatus.value.copy(
                 progressPercent = 100,
@@ -309,6 +324,7 @@ class BatchDownloadPipeline(
             Log.i(TAG, "[UniVoiceBrowser] バッチ処理完了: videoId=$videoId, segments=${translatedSegments.size}")
             Result.success(translatedSegments)
         } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
             Log.e(TAG, "[UniVoiceBrowser] バッチ処理例外: ${e.message}", e)
             _jobStatus.value = _jobStatus.value.copy(
                 statusMessageJapanese = "エラーが発生しました: ${e.localizedMessage}",
@@ -562,6 +578,8 @@ class BatchDownloadPipeline(
                         val timestamp = (meta["timestamp"] as? Number)?.toLong() ?: 0L
                         if (now - timestamp > expiryMs) {
                             videoFolder.deleteRecursively()
+                            val videoId = videoFolder.name
+                            downloadedRepo.deleteItem(videoId)
                             Log.i(TAG, "[UniVoiceBrowser] 期限切れ動画データ（翌日自動削除）を消去しました: ${videoFolder.name}")
                         }
                     } catch (e: Exception) {

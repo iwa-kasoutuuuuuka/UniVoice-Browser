@@ -120,6 +120,10 @@ class CloudEdgeTtsEngine(
                     
                     mp.setOnCompletionListener {
                         safeDeleteTempFile(file)
+                        mp.release()
+                        if (mediaPlayer == mp) {
+                            mediaPlayer = null
+                        }
                         deferred.complete(Unit)
                     }
                     mp.setOnErrorListener { _, what, extra ->

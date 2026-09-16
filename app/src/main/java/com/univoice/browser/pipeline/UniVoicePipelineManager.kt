@@ -82,17 +82,20 @@ class UniVoicePipelineManager(
 
     // スライディングウィンドウ・キャッシュ (12GB+ RAM最適化, LRU自動破棄付き)
     private val slidingWindowQueue = ConcurrentLinkedQueue<UniVoiceSubtitleCue>()
+    private val slidingWindowSize = java.util.concurrent.atomic.AtomicInteger(0)
     private val MAX_TRANSLATION_CACHE_SIZE = 1000
     private val translationCache = ConcurrentHashMap<String, String>() // cleanText -> translatedText
     private val cueChannel = Channel<UniVoiceSubtitleCue>(Channel.BUFFERED)
 
     private fun putTranslationCache(key: String, value: String) {
-        if (translationCache.size >= MAX_TRANSLATION_CACHE_SIZE) {
-            // 最古のエントリを間引いてサイズを一定に保持
-            val keysToRemove = translationCache.keys().toList().take(200)
-            keysToRemove.forEach { translationCache.remove(it) }
+        synchronized(translationCache) {
+            if (translationCache.size >= MAX_TRANSLATION_CACHE_SIZE) {
+                // 最古のエントリを間引いてサイズを一定に保持
+                val keysToRemove = translationCache.keys().toList().take(200)
+                keysToRemove.forEach { translationCache.remove(it) }
+            }
+            translationCache[key] = value
         }
-        translationCache[key] = value
     }
 
     private val thermalManager = com.univoice.browser.hardware.UniVoiceThermalManager(context)
@@ -221,8 +224,11 @@ class UniVoicePipelineManager(
         _currentStatus.value = PipelineStatus.INTERCEPTING
         // スライディングウィンドウに追加
         slidingWindowQueue.add(cue)
-        while (slidingWindowQueue.size > SLIDING_WINDOW_SIZE) {
-            slidingWindowQueue.poll()
+        slidingWindowSize.incrementAndGet()
+        while (slidingWindowSize.get() > SLIDING_WINDOW_SIZE) {
+            slidingWindowQueue.poll()?.let {
+                slidingWindowSize.decrementAndGet()
+            }
         }
 
         // チャンネルへ投入
@@ -452,6 +458,7 @@ class UniVoicePipelineManager(
          lastReceivedText = ""
          lastReceivedTime = 0L
          slidingWindowQueue.clear()
+         slidingWindowSize.set(0)
          while (cueChannel.tryReceive().isSuccess) {
              // チャンネル内に残存している前動画のキューを全破棄
          }
@@ -492,6 +499,7 @@ class UniVoicePipelineManager(
         freeWebTranslation.release()
         translationCache.clear()
         slidingWindowQueue.clear()
+        slidingWindowSize.set(0)
         thermalManager.release()
         Log.i(TAG, "[UniVoiceBrowser] パイプラインマネージャーのリソースを完全に解放しました")
     }
