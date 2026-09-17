@@ -56,6 +56,9 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
     // バッチ字幕抽出の保留状態管理＆安全タイムアウト
     private var isBatchExtractionPending: Boolean = false
     private var isBatchNeedsSettings: Boolean = false
+    private var lastCapturedTimedTextUrl: String? = null
+    private var lastCapturedTimedTextBody: String? = null
+    private var lastCapturedTimedTextHeaders: Map<String, String>? = null
 
     // BUG-H02: ダウンロードリストダイアログ参照 (WindowLeaked防止)
     private var downloadedVideosDialog: com.google.android.material.bottomsheet.BottomSheetDialog? = null
@@ -563,6 +566,9 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
                     completedBatchSegments = null
                     isBatchNeedsSettings = false
                     isBatchExtractionPending = false
+                    lastCapturedTimedTextUrl = null
+                    lastCapturedTimedTextBody = null
+                    lastCapturedTimedTextHeaders = null
                     binding.btnStartBatchDubbing.isEnabled = true
                     binding.btnStartBatchDubbing.text = "吹き替えを開始"
                     binding.layoutBatchProgress.visibility = View.GONE
@@ -579,6 +585,39 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
             },
             onBatchCaptionsExtractedCallback = { jsonPayload ->
                 runOnUiThread { handleExtractedBatchCaptions(jsonPayload) }
+            },
+            onTimedTextCapturedCallback = { url, body ->
+                runOnUiThread {
+                    if (!url.isNullOrBlank()) lastCapturedTimedTextUrl = url
+                    if (!body.isNullOrBlank()) {
+                        lastCapturedTimedTextBody = body
+                        if (isBatchExtractionPending) {
+                            Log.i(TAG, "[UniVoiceBrowser] 保留中のバッチ抽出をインターセプト字幕で即時解決試行")
+                            val segments = if (body.startsWith("{")) {
+                                com.univoice.browser.batch.YouTubeTimedTextParser.parseJson3(body)
+                            } else {
+                                com.univoice.browser.batch.YouTubeTimedTextParser.parseXml(body)
+                            }
+                            if (segments.isNotEmpty()) {
+                                Log.i(TAG, "[UniVoiceBrowser] インターセプト字幕から ${segments.size} 件のセグメントを展開成功")
+                                val payload = org.json.JSONObject().apply {
+                                    put("segments", org.json.JSONArray().apply {
+                                        segments.forEach { s ->
+                                            put(org.json.JSONObject().apply {
+                                                put("index", s.index)
+                                                put("startMs", s.startMs)
+                                                put("endMs", s.endMs)
+                                                put("originalText", s.originalText)
+                                            })
+                                        }
+                                    })
+                                    put("captionTrackUrl", url ?: "")
+                                }.toString()
+                                handleExtractedBatchCaptions(payload)
+                            }
+                        }
+                    }
+                }
             }
         )
         webView.addJavascriptInterface(jsInterface, UniVoiceJSInterface.INTERFACE_NAME)
@@ -662,6 +701,11 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
 
             override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
                 val requestUrl = request?.url?.toString()
+                if (requestUrl != null && requestUrl.contains("timedtext")) {
+                    Log.i(TAG, "[UniVoiceBrowser] shouldInterceptRequest timedtext URL捕捉: $requestUrl")
+                    lastCapturedTimedTextUrl = requestUrl
+                    lastCapturedTimedTextHeaders = request.requestHeaders
+                }
                 if (configManager.currentSettings.adBlockEnabled && com.univoice.browser.adblock.AdBlockEngine.shouldBlock(requestUrl)) {
                     return com.univoice.browser.adblock.AdBlockEngine.createEmptyResponse()
                 }
@@ -899,7 +943,20 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
 
         lifecycleScope.launch {
             var finalSegments: List<com.univoice.browser.batch.TimedSegment> = extractedSegments
-            if (finalSegments.isEmpty() && !captionTrackUrl.isNullOrBlank()) {
+            if (finalSegments.isEmpty() && !lastCapturedTimedTextBody.isNullOrBlank()) {
+                val body = lastCapturedTimedTextBody!!
+                val parsed = if (body.startsWith("{")) {
+                    com.univoice.browser.batch.YouTubeTimedTextParser.parseJson3(body)
+                } else {
+                    com.univoice.browser.batch.YouTubeTimedTextParser.parseXml(body)
+                }
+                if (parsed.isNotEmpty()) {
+                    Log.i(TAG, "[UniVoiceBrowser] 捕捉済みTimedTextボディから ${parsed.size} 件の字幕を展開成功")
+                    finalSegments = parsed
+                }
+            }
+
+            if (finalSegments.isEmpty() && (!captionTrackUrl.isNullOrBlank() || !lastCapturedTimedTextUrl.isNullOrBlank())) {
                 binding.layoutBatchProgress.visibility = View.VISIBLE
                 binding.pbBatchProgress.progress = 8
                 binding.tvBatchProgressText.text = "ネイティブOkHttpで字幕トラックを取得中..."
@@ -914,27 +971,54 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
         }
     }
 
-    private suspend fun fetchCaptionsViaOkHttp(captionTrackUrl: String): List<com.univoice.browser.batch.TimedSegment> = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+    private suspend fun fetchCaptionsViaOkHttp(captionTrackUrl: String?): List<com.univoice.browser.batch.TimedSegment> = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        val cachedBody = lastCapturedTimedTextBody
+        if (!cachedBody.isNullOrBlank()) {
+            val parsed = if (cachedBody.startsWith("{")) {
+                com.univoice.browser.batch.YouTubeTimedTextParser.parseJson3(cachedBody)
+            } else {
+                com.univoice.browser.batch.YouTubeTimedTextParser.parseXml(cachedBody)
+            }
+            if (parsed.isNotEmpty()) {
+                Log.i(TAG, "[UniVoiceBrowser] キャッシュボディから ${parsed.size} 件の字幕を展開")
+                return@withContext parsed
+            }
+        }
+
+        val rawUrl = lastCapturedTimedTextUrl ?: captionTrackUrl ?: return@withContext emptyList()
+        val targetUrl = when {
+            rawUrl.startsWith("http://") || rawUrl.startsWith("https://") -> rawUrl
+            rawUrl.startsWith("/") -> "https://m.youtube.com$rawUrl"
+            else -> "https://m.youtube.com/$rawUrl"
+        }
+
         val client = okhttp3.OkHttpClient.Builder()
             .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
             .readTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
             .build()
 
         val cookieStr = try {
-            android.webkit.CookieManager.getInstance().getCookie(captionTrackUrl)
+            android.webkit.CookieManager.getInstance().getCookie(targetUrl)
         } catch (_: Exception) { null }
 
-        val userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        val userAgent = binding.wvBrowser.settings.userAgentString ?: "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"
 
         // 1段目: fmt=json3 でのリクエスト
-        val sep = if (captionTrackUrl.contains("?")) "&" else "?"
-        val json3Url = if (captionTrackUrl.contains("fmt=")) captionTrackUrl else "$captionTrackUrl${sep}fmt=json3"
+        val sep = if (targetUrl.contains("?")) "&" else "?"
+        val json3Url = if (targetUrl.contains("fmt=")) targetUrl else "$targetUrl${sep}fmt=json3"
         try {
             val reqBuilder = okhttp3.Request.Builder()
                 .url(json3Url)
                 .addHeader("User-Agent", userAgent)
+                .addHeader("Referer", "https://m.youtube.com/")
+                .addHeader("Origin", "https://m.youtube.com")
             if (!cookieStr.isNullOrBlank()) {
                 reqBuilder.addHeader("Cookie", cookieStr)
+            }
+            lastCapturedTimedTextHeaders?.forEach { (k, v) ->
+                if (!k.equals("User-Agent", ignoreCase = true) && !k.equals("Cookie", ignoreCase = true)) {
+                    reqBuilder.header(k, v)
+                }
             }
             client.newCall(reqBuilder.build()).execute().use { resp ->
                 if (resp.isSuccessful) {
@@ -954,10 +1038,17 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
         // 2段目: 標準 XML timedtext でのリクエスト
         try {
             val reqBuilder = okhttp3.Request.Builder()
-                .url(captionTrackUrl)
+                .url(targetUrl)
                 .addHeader("User-Agent", userAgent)
+                .addHeader("Referer", "https://m.youtube.com/")
+                .addHeader("Origin", "https://m.youtube.com")
             if (!cookieStr.isNullOrBlank()) {
                 reqBuilder.addHeader("Cookie", cookieStr)
+            }
+            lastCapturedTimedTextHeaders?.forEach { (k, v) ->
+                if (!k.equals("User-Agent", ignoreCase = true) && !k.equals("Cookie", ignoreCase = true)) {
+                    reqBuilder.header(k, v)
+                }
             }
             client.newCall(reqBuilder.build()).execute().use { resp ->
                 if (resp.isSuccessful) {

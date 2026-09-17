@@ -16,7 +16,8 @@ class UniVoiceJSInterface(
     private val onAudioSuppressedCallback: (Boolean) -> Unit,
     private val onCaptionStateChangedCallback: (Boolean) -> Unit = {},
     private val onVideoNavigatedCallback: (url: String?, videoId: String?) -> Unit = { _, _ -> },
-    private val onBatchCaptionsExtractedCallback: (String?) -> Unit = {}
+    private val onBatchCaptionsExtractedCallback: (String?) -> Unit = {},
+    private val onTimedTextCapturedCallback: (url: String?, body: String?) -> Unit = { _, _ -> }
 ) {
 
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -132,6 +133,19 @@ class UniVoiceJSInterface(
         Log.i(TAG, "[UniVoiceBrowser] バッチ用字幕抽出データ受信: ${jsonPayload?.length ?: 0} bytes")
         mainHandler.post {
             onBatchCaptionsExtractedCallback(jsonPayload)
+        }
+    }
+
+    /**
+     * YouTubeプレイヤー自身の正規TimedText通信（PO Token認証済）のインターセプト通知を受信
+     */
+    @JavascriptInterface
+    fun onTimedTextCaptured(url: String?, body: String?) {
+        if (!isOriginAuthorized()) return
+        if (body.isNullOrBlank()) return
+        Log.i(TAG, "[UniVoiceBrowser] TimedTextインターセプト通知受信: url=$url, size=${body.length}")
+        mainHandler.post {
+            onTimedTextCapturedCallback(url, body)
         }
     }
 

@@ -319,9 +319,9 @@ class BatchDownloadPipeline(
      * 音声・映像メディアの安全なダウンロードとローカル保存・検証
      */
     private fun downloadFileWithRetry(sourceUrl: String?, targetFile: File, mediaType: String) {
-        // 既存キャッシュの整合性検証: 壊れたHTMLファイルやダミーファイル(4096B以下)なら削除して再取得
+        // 既存キャッシュの整合性検証: 壊れたHTMLファイルやダミーファイル(30KB以下)なら削除して再取得
         if (targetFile.exists()) {
-            if (targetFile.length() <= 4096L || isHtmlFile(targetFile)) {
+            if (targetFile.length() <= 30720L || isHtmlFile(targetFile)) {
                 Log.w(TAG, "[UniVoiceBrowser] 無効または破損した既存${mediaType}キャッシュを破棄: ${targetFile.name} (${targetFile.length()} bytes)")
                 targetFile.delete()
             } else {
@@ -402,8 +402,8 @@ class BatchDownloadPipeline(
             0L
         }
 
-        if (durationMs <= 0L || audioFile.length() < 1024L) {
-            throw IllegalStateException("音声データの解析に失敗しました。ファイルが空または無効です。")
+        if (durationMs <= 0L || audioFile.length() < 30720L) {
+            throw IllegalStateException("この動画にはYouTube字幕が存在せず、音声ストリームの解析にも失敗しました。YouTube字幕(CC)が利用可能な動画でお試しください。")
         }
 
         // ダミー英文（baseSentences）は一切捏造せず、認識不可の場合は正直にエラー通知

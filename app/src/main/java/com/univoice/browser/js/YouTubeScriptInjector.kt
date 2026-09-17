@@ -109,6 +109,78 @@ object YouTubeScriptInjector {
                 }
             }
 
+            // ==========================================
+            // 0.2 TimedText ネットワーク自動インターセプト (PO Token & Session 自動捕捉)
+            // ==========================================
+            if (!window.__univoice_net_hooked) {
+                window.__univoice_net_hooked = true;
+                window.__univoice_captured_timedtext = "";
+                window.__univoice_captured_timedtext_url = "";
+
+                // 1. window.fetch インターセプト
+                try {
+                    const origFetch = window.fetch;
+                    if (typeof origFetch === 'function') {
+                        window.fetch = function() {
+                            const args = arguments;
+                            const url = (typeof args[0] === 'string') ? args[0] : (args[0] && args[0].url ? args[0].url : "");
+                            const promise = origFetch.apply(this, args);
+                            if (url && typeof url === 'string' && url.indexOf('timedtext') !== -1) {
+                                promise.then(function(res) {
+                                    try {
+                                        const clone = res.clone();
+                                        clone.text().then(function(txt) {
+                                            if (txt && txt.length > 30 && (txt.indexOf('events') !== -1 || txt.indexOf('<transcript') !== -1 || txt.indexOf('<text') !== -1)) {
+                                                window.__univoice_captured_timedtext = txt;
+                                                window.__univoice_captured_timedtext_url = url;
+                                                log("Fetchによる正規TimedText捕捉成功: " + txt.length + " bytes");
+                                                if (bridge && bridge.onTimedTextCaptured) {
+                                                    bridge.onTimedTextCaptured(url, txt);
+                                                }
+                                            }
+                                        }).catch(function() {});
+                                    } catch(_) {}
+                                }).catch(function() {});
+                            }
+                            return promise;
+                        };
+                    }
+                } catch(e) {
+                    log("fetchフック初期化エラー: " + e.message);
+                }
+
+                // 2. XMLHttpRequest インターセプト
+                try {
+                    const origXhrOpen = XMLHttpRequest.prototype.open;
+                    const origXhrSend = XMLHttpRequest.prototype.send;
+                    XMLHttpRequest.prototype.open = function(method, url) {
+                        this.__univoice_url = url;
+                        return origXhrOpen.apply(this, arguments);
+                    };
+                    XMLHttpRequest.prototype.send = function(body) {
+                        if (this.__univoice_url && typeof this.__univoice_url === 'string' && this.__univoice_url.indexOf('timedtext') !== -1) {
+                            const reqUrl = this.__univoice_url;
+                            this.addEventListener('load', function() {
+                                try {
+                                    const txt = this.responseText;
+                                    if (txt && txt.length > 30 && (txt.indexOf('events') !== -1 || txt.indexOf('<transcript') !== -1 || txt.indexOf('<text') !== -1)) {
+                                        window.__univoice_captured_timedtext = txt;
+                                        window.__univoice_captured_timedtext_url = reqUrl;
+                                        log("XHRによる正規TimedText捕捉成功: " + txt.length + " bytes");
+                                        if (bridge && bridge.onTimedTextCaptured) {
+                                            bridge.onTimedTextCaptured(reqUrl, txt);
+                                        }
+                                    }
+                                } catch(_) {}
+                            });
+                        }
+                        return origXhrSend.apply(this, arguments);
+                    };
+                } catch(e) {
+                    log("XHRフック初期化エラー: " + e.message);
+                }
+            }
+
             // ネイティブの requestFullscreen 関数参照を保持（無限再帰防止）
             const nativeRequestFullscreen = Element.prototype.requestFullscreen || 
                                            Element.prototype.webkitRequestFullscreen || 
@@ -222,6 +294,71 @@ object YouTubeScriptInjector {
                 log("バックグラウンド再生保護（Page Visibility API 偽装）を適用しました");
             } catch(e) {
                 log("Visibility APIフック例外: " + e.message);
+            }
+
+            // ==========================================
+            // 0.2 TimedText ネットワーク自動インターセプト (PO Token完全自動透過)
+            // YouTubeプレイヤー自身が正規PO Token/セッションで取得する字幕レスポンスを完全捕捉
+            // ==========================================
+            window.__univoice_captured_timedtext = window.__univoice_captured_timedtext || "";
+            window.__univoice_captured_timedtext_url = window.__univoice_captured_timedtext_url || "";
+
+            if (!window.__univoice_network_hooked) {
+                window.__univoice_network_hooked = true;
+
+                // 1. window.fetch の透過的インターセプト
+                try {
+                    const origFetch = window.fetch;
+                    window.fetch = function() {
+                        const args = arguments;
+                        const url = (typeof args[0] === 'string') ? args[0] : (args[0] && args[0].url ? args[0].url : "");
+                        const promise = origFetch.apply(this, args);
+                        if (url && url.indexOf('timedtext') !== -1) {
+                            promise.then(function(res) {
+                                try {
+                                    const cloned = res.clone();
+                                    cloned.text().then(function(text) {
+                                        if (text && text.length > 50) {
+                                            window.__univoice_captured_timedtext = text;
+                                            window.__univoice_captured_timedtext_url = url;
+                                            log("YouTube timedtext通信(fetch)を自動インターセプト捕捉成功 (" + text.length + " bytes)");
+                                        }
+                                    }).catch(function(){});
+                                } catch(_e) {}
+                            }).catch(function(){});
+                        }
+                        return promise;
+                    };
+                } catch(e) {
+                    log("fetchフック例外: " + e.message);
+                }
+
+                // 2. XMLHttpRequest の透過的インターセプト
+                try {
+                    const origXhrOpen = XMLHttpRequest.prototype.open;
+                    const origXhrSend = XMLHttpRequest.prototype.send;
+                    XMLHttpRequest.prototype.open = function(method, url) {
+                        this.__univoice_req_url = url;
+                        return origXhrOpen.apply(this, arguments);
+                    };
+                    XMLHttpRequest.prototype.send = function() {
+                        if (this.__univoice_req_url && this.__univoice_req_url.indexOf('timedtext') !== -1) {
+                            this.addEventListener('load', function() {
+                                try {
+                                    const text = this.responseText;
+                                    if (text && text.length > 50) {
+                                        window.__univoice_captured_timedtext = text;
+                                        window.__univoice_captured_timedtext_url = this.__univoice_req_url;
+                                        log("YouTube timedtext通信(XHR)を自動インターセプト捕捉成功 (" + text.length + " bytes)");
+                                    }
+                                } catch(_e) {}
+                            });
+                        }
+                        return origXhrSend.apply(this, arguments);
+                    };
+                } catch(e) {
+                    log("XHRフック例外: " + e.message);
+                }
             }
 
             // YouTube DOM上の全画面ボタンのタップを確実に捕捉するキャプチャフェーズ・イベントリスナー
@@ -698,89 +835,7 @@ object YouTubeScriptInjector {
                         }
                     };
 
-                    const player = document.querySelector('#movie_player, .html5-video-player');
-                    let tracks = null;
-                    let streamingData = null;
-
-                    if (player && typeof player.getPlayerResponse === 'function') {
-                        try {
-                            const pr = player.getPlayerResponse();
-                            tracks = pr && pr.captions && pr.captions.playerCaptionsTracklistRenderer && pr.captions.playerCaptionsTracklistRenderer.captionTracks;
-                            streamingData = pr && pr.streamingData;
-                        } catch(e) {}
-                    }
-                    if (!tracks || tracks.length === 0) {
-                        if (window.ytInitialPlayerResponse) {
-                            const cr = window.ytInitialPlayerResponse.captions && window.ytInitialPlayerResponse.captions.playerCaptionsTracklistRenderer;
-                            tracks = cr && cr.captionTracks;
-                            streamingData = streamingData || window.ytInitialPlayerResponse.streamingData;
-                        }
-                    }
-                    if (!tracks || tracks.length === 0) {
-                        if (window.ytplayer && window.ytplayer.config && window.ytplayer.config.args && window.ytplayer.config.args.raw_player_response) {
-                            try {
-                                const rpr = typeof window.ytplayer.config.args.raw_player_response === 'string'
-                                    ? JSON.parse(window.ytplayer.config.args.raw_player_response)
-                                    : window.ytplayer.config.args.raw_player_response;
-                                tracks = rpr && rpr.captions && rpr.captions.playerCaptionsTracklistRenderer && rpr.captions.playerCaptionsTracklistRenderer.captionTracks;
-                                streamingData = streamingData || (rpr && rpr.streamingData);
-                            } catch(e) {}
-                        }
-                    }
-
-                    // 本物の音声ストリームURL (M4A/WebM) を抽出
-                    let actualAudioUrl = "";
-                    if (streamingData) {
-                        if (streamingData.adaptiveFormats) {
-                            const af = streamingData.adaptiveFormats.find(function(f) {
-                                return f.url && f.mimeType && f.mimeType.indexOf('audio/') !== -1;
-                            });
-                            if (af && af.url) actualAudioUrl = af.url;
-                        }
-                        if (!actualAudioUrl && streamingData.formats) {
-                            const f = streamingData.formats.find(function(item) { return item.url; });
-                            if (f && f.url) actualAudioUrl = f.url;
-                        }
-                    }
-
-                    if (!tracks || tracks.length === 0) {
-                        log("バッチ字幕抽出: 利用可能な captionTracks がありません (音声URL=" + (actualAudioUrl ? "取得" : "未取得") + ")");
-                        notifyResult([], "", actualAudioUrl);
-                        return;
-                    }
-
-                    // ハイブリッド優先選定: 手動作成字幕 (kind !== 'asr') を最優先
-                    let isManual = false;
-                    let targetTrack = tracks.find(function(t) {
-                        return (!t.kind || t.kind !== 'asr') && (t.languageCode === 'en' || (t.vssId && t.vssId.indexOf('.en') !== -1));
-                    });
-                    if (targetTrack) {
-                        isManual = true;
-                    } else {
-                        targetTrack = tracks.find(function(t) {
-                            return !t.kind || t.kind !== 'asr';
-                        });
-                        if (targetTrack) isManual = true;
-                    }
-
-                    if (!targetTrack) {
-                        targetTrack = tracks.find(function(t) {
-                            return t.languageCode === 'en' || (t.vssId && t.vssId.indexOf('.en') !== -1);
-                        }) || tracks[0];
-                        isManual = (!targetTrack.kind || targetTrack.kind !== 'asr');
-                    }
-
-                    if (!targetTrack || !targetTrack.baseUrl) {
-                        log("バッチ字幕抽出: 有効な targetTrack / baseUrl が取得できませんでした");
-                        notifyResult([], "", actualAudioUrl);
-                        return;
-                    }
-
-                    const trackTitle = (targetTrack.name ? (targetTrack.name.simpleText || targetTrack.name) : targetTrack.languageCode) || "track";
-                    const baseUrl = targetTrack.baseUrl;
-                    log("バッチ用全編字幕トラックを選択: " + trackTitle + " (手動=" + isManual + ")");
-
-                    function processRawCaptionEvents(rawList) {
+                    function processRawCaptionEvents(rawList, isManual) {
                         const mergedList = [];
                         let currentChunk = null;
 
@@ -822,78 +877,238 @@ object YouTubeScriptInjector {
                         });
                     }
 
-                    // 1段目: JSON3 フェッチ
-                    const separator = baseUrl.indexOf('?') !== -1 ? '&' : '?';
-                    const json3Url = baseUrl + separator + 'fmt=json3';
-
-                    fetch(json3Url)
-                        .then(function(res) {
-                            if (!res.ok) throw new Error("HTTP " + res.status);
-                            return res.json();
-                        })
-                        .then(function(data) {
-                            if (!data || !data.events || data.events.length === 0) {
-                                throw new Error("JSON3 events empty");
-                            }
-                            const rawList = [];
-                            data.events.forEach(function(ev) {
-                                if (!ev.segs || typeof ev.tStartMs !== 'number') return;
-                                const start = ev.tStartMs;
-                                const dur = ev.dDurationMs || 2500;
-                                const end = start + dur;
-                                const text = ev.segs.map(function(s) { return s.utf8 || ''; }).join('').replace(/\s+/g, ' ').trim();
-                                const sanitized = sanitizeCaption(text);
-                                if (sanitized && sanitized.length >= 1) {
-                                    rawList.push({ startMs: start, endMs: end, text: sanitized });
-                                }
-                            });
-
-                            if (rawList.length === 0) throw new Error("JSON3 sanitized list empty");
-
-                            const segments = processRawCaptionEvents(rawList);
-                            log("バッチ字幕(JSON3)抽出完了: " + segments.length + "件");
-                            notifyResult(segments, baseUrl, actualAudioUrl);
-                        })
-                        .catch(function(jsonErr) {
-                            log("JSON3フェッチ警告 (" + jsonErr.message + ") -> XML timedtext形式でフォールバックフェッチ試行");
-                            // 2段目: 標準 XML timedtext フェッチ
-                            fetch(baseUrl)
-                                .then(function(res) {
-                                    if (!res.ok) throw new Error("XML HTTP " + res.status);
-                                    return res.text();
-                                })
-                                .then(function(xmlText) {
-                                    const parser = new DOMParser();
-                                    const xmlDoc = parser.parseFromString(xmlText, "text/xml");
-                                    const textNodes = xmlDoc.getElementsByTagName("text");
-                                    if (!textNodes || textNodes.length === 0) {
-                                        throw new Error("XML text nodes empty");
-                                    }
-                                    const rawList = [];
-                                    for (let i = 0; i < textNodes.length; i++) {
-                                        const node = textNodes[i];
-                                        const startSec = parseFloat(node.getAttribute("start") || "0");
-                                        const durSec = parseFloat(node.getAttribute("dur") || "2.5");
-                                        const start = Math.floor(startSec * 1000);
-                                        const end = start + Math.floor(durSec * 1000);
-                                        const text = (node.textContent || "").replace(/\s+/g, ' ').trim();
+                    function parseTimedTextPayload(rawText) {
+                        if (!rawText || rawText.length < 20) return null;
+                        const rawList = [];
+                        const trimmed = rawText.trim();
+                        if (trimmed.startsWith('{')) {
+                            // JSON3 形式
+                            try {
+                                const data = JSON.parse(trimmed);
+                                if (data && data.events) {
+                                    data.events.forEach(function(ev) {
+                                        if (!ev.segs || typeof ev.tStartMs !== 'number') return;
+                                        const start = ev.tStartMs;
+                                        const dur = ev.dDurationMs || 2500;
+                                        const end = start + dur;
+                                        const text = ev.segs.map(function(s) { return s.utf8 || ''; }).join('').replace(/\s+/g, ' ').trim();
                                         const sanitized = sanitizeCaption(text);
                                         if (sanitized && sanitized.length >= 1) {
                                             rawList.push({ startMs: start, endMs: end, text: sanitized });
                                         }
+                                    });
+                                }
+                            } catch(_je) {}
+                        } else if (rawText.indexOf('<transcript') !== -1 || rawText.indexOf('<text') !== -1) {
+                            // XML 形式
+                            try {
+                                const parser = new DOMParser();
+                                const xmlDoc = parser.parseFromString(rawText, "text/xml");
+                                const textNodes = xmlDoc.getElementsByTagName("text");
+                                for (let i = 0; i < textNodes.length; i++) {
+                                    const node = textNodes[i];
+                                    const startSec = parseFloat(node.getAttribute("start") || "0");
+                                    const durSec = parseFloat(node.getAttribute("dur") || "2.5");
+                                    const start = Math.floor(startSec * 1000);
+                                    const end = start + Math.floor(durSec * 1000);
+                                    const text = (node.textContent || "").replace(/\s+/g, ' ').trim();
+                                    const sanitized = sanitizeCaption(text);
+                                    if (sanitized && sanitized.length >= 1) {
+                                        rawList.push({ startMs: start, endMs: end, text: sanitized });
                                     }
-                                    if (rawList.length === 0) throw new Error("XML sanitized list empty");
+                                }
+                            } catch(_xe) {}
+                        }
+                        if (rawList.length > 0) {
+                            return processRawCaptionEvents(rawList, false);
+                        }
+                        return null;
+                    }
 
-                                    const segments = processRawCaptionEvents(rawList);
-                                    log("バッチ字幕(XML)抽出完了: " + segments.length + "件");
-                                    notifyResult(segments, baseUrl, actualAudioUrl);
-                                })
-                                .catch(function(xmlErr) {
-                                    log("XMLフェッチも失敗 (" + xmlErr.message + ") -> ネイティブOkHttpへ baseUrl を委託");
-                                    // 3段目: ネイティブ OkHttp 側で直接ダウンロードしてパースさせる
-                                    notifyResult([], baseUrl, actualAudioUrl);
+                    // 1. すでにネットワークフックで捕捉済みの timedtext があれば最優先で使用 (PO Token正規認証済)
+                    if (window.__univoice_captured_timedtext) {
+                        const segments = parseTimedTextPayload(window.__univoice_captured_timedtext);
+                        if (segments && segments.length > 0) {
+                            log("ネットワーク捕捉済み字幕から " + segments.length + " 件のセグメントを即時展開");
+                            notifyResult(segments, window.__univoice_captured_timedtext_url || "", "");
+                            return;
+                        }
+                    }
+
+                    // 2. 未捕捉の場合、プレイヤーの字幕通信をトリガー
+                    try {
+                        const player = document.querySelector('#movie_player, .html5-video-player');
+                        if (player) {
+                            if (typeof player.loadModule === 'function') {
+                                try { player.loadModule("captions"); } catch(_e) {}
+                            }
+                            if (typeof player.setOption === 'function') {
+                                try {
+                                    player.setOption("captions", "track", { languageCode: "en" });
+                                    player.setOption("captions", "reload", true);
+                                } catch(_e) {}
+                            }
+                            if (typeof player.toggleSubtitlesOn === 'function') {
+                                try { player.toggleSubtitlesOn(); } catch(_e) {}
+                            }
+                        }
+                    } catch(_e) {}
+
+                    const ccBtn = document.querySelector('.ytp-subtitles-button, button[aria-label*="字幕"], button[aria-label*="Captions"], button[aria-label*="Subtitles"], ytm-custom-control[aria-label*="字幕"], button[aria-label*="CC"]');
+                    if (ccBtn) {
+                        const pressed = ccBtn.getAttribute('aria-pressed');
+                        if (pressed !== 'true') {
+                            ccBtn.click();
+                            log("字幕ボタンをタップしてプレイヤー字幕通信をトリガーしました");
+                        }
+                    }
+
+                    // 最大 2.5 秒間、ネットワーク捕捉の到着を待機監視
+                    let waitAttempts = 0;
+                    const checkInterval = setInterval(function() {
+                        waitAttempts++;
+                        if (window.__univoice_captured_timedtext) {
+                            clearInterval(checkInterval);
+                            const segments = parseTimedTextPayload(window.__univoice_captured_timedtext);
+                            if (segments && segments.length > 0) {
+                                log("待機中にインターセプト捕捉完了: " + segments.length + "件");
+                                notifyResult(segments, window.__univoice_captured_timedtext_url || "", "");
+                                return;
+                            }
+                        }
+                        if (waitAttempts >= 20) { // 2.0秒経過
+                            clearInterval(checkInterval);
+                            runFallbackExtraction();
+                        }
+                    }, 100);
+
+                    function runFallbackExtraction() {
+                        const player = document.querySelector('#movie_player, .html5-video-player');
+                        let tracks = null;
+                        let streamingData = null;
+
+                        if (player && typeof player.getPlayerResponse === 'function') {
+                            try {
+                                const pr = player.getPlayerResponse();
+                                tracks = pr && pr.captions && pr.captions.playerCaptionsTracklistRenderer && pr.captions.playerCaptionsTracklistRenderer.captionTracks;
+                                streamingData = pr && pr.streamingData;
+                            } catch(e) {}
+                        }
+                        if (!tracks || tracks.length === 0) {
+                            if (window.ytInitialPlayerResponse) {
+                                const cr = window.ytInitialPlayerResponse.captions && window.ytInitialPlayerResponse.captions.playerCaptionsTracklistRenderer;
+                                tracks = cr && cr.captionTracks;
+                                streamingData = streamingData || window.ytInitialPlayerResponse.streamingData;
+                            }
+                        }
+                        if (!tracks || tracks.length === 0) {
+                            if (window.ytplayer && window.ytplayer.config && window.ytplayer.config.args && window.ytplayer.config.args.raw_player_response) {
+                                try {
+                                    const rpr = typeof window.ytplayer.config.args.raw_player_response === 'string'
+                                        ? JSON.parse(window.ytplayer.config.args.raw_player_response)
+                                        : window.ytplayer.config.args.raw_player_response;
+                                    tracks = rpr && rpr.captions && rpr.captions.playerCaptionsTracklistRenderer && rpr.captions.playerCaptionsTracklistRenderer.captionTracks;
+                                    streamingData = streamingData || (rpr && rpr.streamingData);
+                                } catch(e) {}
+                            }
+                        }
+
+                        // 本物の音声ストリームURL (M4A/WebM) を抽出
+                        let actualAudioUrl = "";
+                        if (streamingData) {
+                            if (streamingData.adaptiveFormats) {
+                                const af = streamingData.adaptiveFormats.find(function(f) {
+                                    return f.url && f.mimeType && f.mimeType.indexOf('audio/') !== -1;
                                 });
+                                if (af && af.url) actualAudioUrl = af.url;
+                            }
+                            if (!actualAudioUrl && streamingData.formats) {
+                                const f = streamingData.formats.find(function(item) { return item.url; });
+                                if (f && f.url) actualAudioUrl = f.url;
+                            }
+                        }
+
+                        if (!tracks || tracks.length === 0) {
+                            log("バッチ字幕抽出: 利用可能な captionTracks がありません (音声URL=" + (actualAudioUrl ? "取得" : "未取得") + ")");
+                            notifyResult([], "", actualAudioUrl);
+                            return;
+                        }
+
+                        // ハイブリッド優先選定: 手動作成字幕 (kind !== 'asr') を最優先
+                        let isManual = false;
+                        let targetTrack = tracks.find(function(t) {
+                            return (!t.kind || t.kind !== 'asr') && (t.languageCode === 'en' || (t.vssId && t.vssId.indexOf('.en') !== -1));
                         });
+                        if (targetTrack) {
+                            isManual = true;
+                        } else {
+                            targetTrack = tracks.find(function(t) {
+                                return !t.kind || t.kind !== 'asr';
+                            });
+                            if (targetTrack) isManual = true;
+                        }
+
+                        if (!targetTrack) {
+                            targetTrack = tracks.find(function(t) {
+                                return t.languageCode === 'en' || (t.vssId && t.vssId.indexOf('.en') !== -1);
+                            }) || tracks[0];
+                            isManual = (!targetTrack.kind || targetTrack.kind !== 'asr');
+                        }
+
+                        if (!targetTrack || !targetTrack.baseUrl) {
+                            log("バッチ字幕抽出: 有効な targetTrack / baseUrl が取得できませんでした");
+                            notifyResult([], "", actualAudioUrl);
+                            return;
+                        }
+
+                        const trackTitle = (targetTrack.name ? (targetTrack.name.simpleText || targetTrack.name) : targetTrack.languageCode) || "track";
+                        let baseUrl = targetTrack.baseUrl;
+                        // 相対URLの場合は絶対URLへ補正
+                        if (baseUrl.indexOf('http') !== 0) {
+                            baseUrl = window.location.origin + baseUrl;
+                        }
+                        log("バッチ用全編字幕トラックを選択: " + trackTitle + " (手動=" + isManual + ")");
+
+                        // 1段目: JSON3 フェッチ
+                        const separator = baseUrl.indexOf('?') !== -1 ? '&' : '?';
+                        const json3Url = baseUrl + separator + 'fmt=json3';
+
+                        fetch(json3Url)
+                            .then(function(res) {
+                                if (!res.ok) throw new Error("HTTP " + res.status);
+                                return res.text();
+                            })
+                            .then(function(responseText) {
+                                const parsed = parseTimedTextPayload(responseText);
+                                if (parsed && parsed.length > 0) {
+                                    log("バッチ字幕(JSON3)抽出完了: " + parsed.length + "件");
+                                    notifyResult(parsed, baseUrl, actualAudioUrl);
+                                } else {
+                                    throw new Error("JSON3 parsed empty");
+                                }
+                            })
+                            .catch(function(jsonErr) {
+                                log("JSON3フェッチ警告 (" + jsonErr.message + ") -> XML timedtext形式でフォールバックフェッチ試行");
+                                fetch(baseUrl)
+                                    .then(function(res) {
+                                        if (!res.ok) throw new Error("XML HTTP " + res.status);
+                                        return res.text();
+                                    })
+                                    .then(function(xmlText) {
+                                        const parsed = parseTimedTextPayload(xmlText);
+                                        if (parsed && parsed.length > 0) {
+                                            log("バッチ字幕(XML)抽出完了: " + parsed.length + "件");
+                                            notifyResult(parsed, baseUrl, actualAudioUrl);
+                                        } else {
+                                            throw new Error("XML parsed empty");
+                                        }
+                                    })
+                                    .catch(function(xmlErr) {
+                                        log("XMLフェッチも失敗 (" + xmlErr.message + ") -> ネイティブOkHttpへ baseUrl を委託");
+                                        notifyResult([], baseUrl, actualAudioUrl);
+                                    });
+                            });
+                    }
                 } catch(e) {
                     log("バッチ用字幕トラック抽出例外: " + e.message);
                     const b = window.UniVoiceBridge || bridge;
