@@ -12,19 +12,19 @@
 [![UI Language](https://img.shields.io/badge/UI-Japanese%20Only%20%28100%25%29-red.svg)](#完全日本語ui設計)
 [![Build Status](https://img.shields.io/badge/Build-Passing-brightgreen.svg)]()
 [![Security](https://img.shields.io/badge/Security-Hardened-blue.svg)]()
-[![Release APK](https://img.shields.io/badge/APK_Download-v1.2.1_(70.0MB)-blueviolet.svg?logo=android)](release/UniVoiceBrowser-v1.2.1.apk)
+[![Release APK](https://img.shields.io/badge/APK_Download-v1.2.3_(70.0MB)-blueviolet.svg?logo=android)](release/UniVoiceBrowser-v1.2.3.apk)
 
 <p align="center">
-  <a href="https://github.com/iwa-kasoutuuuuuka/UniVoice-Browser/raw/main/release/UniVoiceBrowser-v1.2.1.apk">
-    <img src="https://img.shields.io/badge/📥_今すぐダウンロード-UniVoiceBrowser--v1.2.1.apk_(70.0MB)-2ea44f?style=for-the-badge&logo=android&logoColor=white" alt="APK直接ダウンロード" />
+  <a href="https://github.com/iwa-kasoutuuuuuka/UniVoice-Browser/raw/main/release/UniVoiceBrowser-v1.2.3.apk">
+    <img src="https://img.shields.io/badge/📥_今すぐダウンロード-UniVoiceBrowser--v1.2.3.apk_(70.0MB)-2ea44f?style=for-the-badge&logo=android&logoColor=white" alt="APK直接ダウンロード" />
   </a>
 </p>
 
 > [!TIP]
 > **ワンタップで今すぐインストール可能**: リリース版APK（署名済み）は上記バッジまたは以下のダイレクトリンクからダウンロードして、Android端末（Android 8.0以降 / Poco F6 Pro・Galaxy・Pixel・エミュレーター等）ですぐにご利用いただけます。
 > 
-> 🔗 **ダイレクトダウンロード**: [UniVoiceBrowser-v1.2.1.apk (約70.0MB)](https://github.com/iwa-kasoutuuuuuka/UniVoice-Browser/raw/main/release/UniVoiceBrowser-v1.2.1.apk)  
-> 🔗 **リポジトリ内ファイルパス**: [`release/UniVoiceBrowser-v1.2.1.apk`](release/UniVoiceBrowser-v1.2.1.apk)
+> 🔗 **ダイレクトダウンロード**: [UniVoiceBrowser-v1.2.3.apk (約70.0MB)](https://github.com/iwa-kasoutuuuuuka/UniVoice-Browser/raw/main/release/UniVoiceBrowser-v1.2.3.apk)  
+> 🔗 **リポジトリ内ファイルパス**: [`release/UniVoiceBrowser-v1.2.3.apk`](release/UniVoiceBrowser-v1.2.3.apk)
 
 **UniVoice Browser** は、YouTubeなどの動画視聴時に元の外国語（英語等）音声をHTML5レベルで完全抑制（ミュート）し、リアルタイムに字幕をキャプチャ・翻訳して、流暢な日本語音声（Text-to-Speech）をオーバーレイ再生するAndroid専用の次世代AIブラウザです。
 
@@ -105,7 +105,25 @@
 
 ## 🔄 最近のアップデート・更新履歴 (Changelog)
 
-### 【最新版】v1.2.1 完全先行メディアダウンロード＆自然で失敗しないハイブリッド字幕設計 (versionCode: 17)
+### 【最新版】v1.2.3 YouTube公式プレイヤー通信透過インターセプト＆PO Token自動取得 (versionCode: 19)
+
+| 項目 | 改善・修正の詳細内容 |
+| :--- | :--- |
+| **⚡ プレイヤー通信透過インターセプト (PO Token & Session 自動捕捉)** | YouTube最新のProof-of-Origin (PO) Token仕様（`exp=xpe` 等のボット検知による0バイト返却問題）に完全対応。<br>ページ読み込み最上流で `window.fetch` および `XMLHttpRequest` を透過フックし、YouTube公式プレイヤー自身が行う正規PO Token付き通信から全編字幕（JSON3/XML）をリアルタイムにクローン捕捉。外部スクリプトからの呼び出しを遮断するYouTubeの最新セキュリティを合法的かつ確実に突破。 |
+| **🎯 能動的字幕トリガー＆ポーリング監視機構** | ユーザーが「吹き替えを開始」を押した時点で字幕が未捕捉の場合、公式プレイヤーの字幕モジュール（`loadModule("captions")`、`setOption("captions", "track", ...)`）および CC 字幕ボタンを自動タップしてプレイヤーに正規通信を発行させ、最大2.5秒ポーリング待機して即座に解析へ引き渡す自動化パイプラインを確立。 |
+| **🌐 モバイルYouTube相対URL自動補正＆`shouldInterceptRequest` 連携** | モバイル版YouTubeの `captionTracks[].baseUrl` が相対パス（`/api/timedtext?...`）で返された場合に `https://m.youtube.com/...` へ自動補正。<br>さらに `WebViewClient.shouldInterceptRequest` でプレイヤー通信の署名付きURLと全ヘッダー（CookieManager Cookie・Referer・Origin等）をネイティブ層でも自動捕捉し、フォールバック時にも通信整合性を100%保証。 |
+| **🛡️ 音声破損クラッシュ防止＆UI完全復帰保証** | 字幕・音声ストリーム共に入手不可能な動画において、0バイト音声処理によるクラッシュ（`IllegalStateException`）を物理遮断し、「YouTube字幕(CC)が付いている動画でお試しください」と正確に案内した上でボタンを安全に「再試行」へ復帰。 |
+| **🚀 APKバージョン体系のアップデート (v1.2.3 / versionCode: 19)** | アプリの `versionName` を `1.2.3`、`versionCode` を `19` にインクリメント。<br>リリースAPKの配信ファイル名を `UniVoiceBrowser-v1.2.3.apk` に刷新。 |
+
+### v1.2.2 多層多段字幕抽出＆破損HTML音声キャッシュ防止 (versionCode: 18)
+
+| 項目 | 改善・修正の詳細内容 |
+| :--- | :--- |
+| **🧩 多段字幕抽出フォールバック＆パーサー新設 (`YouTubeTimedTextParser`)** | ネイティブ層に独立した `YouTubeTimedTextParser.kt` を新設。<br>JSON3形式およびXML形式の字幕トラックを文単位（発話ギャップ1.2秒未満・最大5.5秒）に自動マージ・整形し、JavaScript側でのパース失敗時にもネイティブOkHttp側で多段フォールバック抽出を可能に。 |
+| **🚫 破損HTML音声キャッシュ破棄機構** | YouTubeのストリーム制限等でダウンロードされた30KB未満のHTMLエラーページ（`<!DOCTYPE html>...`）を破損判定して自動破棄。<br>次回以降のキャッシュ読み込み時にWhisper解析でクラッシュする現象を防止。 |
+| **🔄 バッチ吹き替えボタンの失敗時復帰保証** | 通信エラーや字幕未検出時にもボタンが「処理中...」のまま永久停止するのを防止し、赤色の「再試行」ボタンとして確実に復帰させるフェイルセーフを実装。 |
+
+### v1.2.1 完全先行メディアダウンロード＆自然で失敗しないハイブリッド字幕設計 (versionCode: 17)
 
 | 項目 | 改善・修正の詳細内容 |
 | :--- | :--- |
@@ -787,7 +805,7 @@ e:/UniVoice Browser/
    ./gradlew assembleRelease
    ```
    生成先: `app/build/outputs/apk/release/app-release.apk`  
-   （※リポジトリ直下の `release/UniVoiceBrowser-v1.1.0.apk` に同一バイナリが配置されています）
+   （※リポジトリ直下の `release/UniVoiceBrowser-v1.2.3.apk` に同一バイナリが配置されています）
 
 3. **デバッグ用 APK のビルド**:
    ```bash
@@ -801,7 +819,7 @@ e:/UniVoice Browser/
 
 4. **実機（Poco F6 Pro等）またはエミュレーターへのワンタップインストール**:
    ```bash
-   adb install -r release/UniVoiceBrowser-v1.1.0.apk
+   adb install -r release/UniVoiceBrowser-v1.2.3.apk
    ```
 
 ---
