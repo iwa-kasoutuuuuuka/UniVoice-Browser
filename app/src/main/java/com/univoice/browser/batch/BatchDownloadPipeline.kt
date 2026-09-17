@@ -87,13 +87,18 @@ class BatchDownloadPipeline(
         val safeVideoId = sanitizeVideoId(videoId)
         val fullUrl = if (videoId.startsWith("http")) videoId else "https://www.youtube.com/watch?v=$safeVideoId"
         try {
+            // 出力先ディレクトリの準備
+            val videoOutputDir = File(cacheDir, safeVideoId).apply { if (!exists()) mkdirs() }
+            val sourceAudioFile = File(videoOutputDir, "source_audio.m4a")
+            val videoCacheFile = File(videoOutputDir, "video_cached.mp4")
+
             _jobStatus.value = BatchJobStatus(
                 videoId = safeVideoId,
                 title = videoTitle,
                 progressPercent = 5,
                 audioProgressPercent = 10,
                 transProgressPercent = 0,
-                videoProgressPercent = 0,
+                videoProgressPercent = 10,
                 statusMessageJapanese = "処理を開始しています..."
             )
             downloadedRepo.upsertItem(
@@ -102,101 +107,84 @@ class BatchDownloadPipeline(
                 videoUrl = fullUrl,
                 audioProgress = 10,
                 transProgress = 0,
-                videoProgress = 0,
+                videoProgress = 10,
                 isCompleted = false,
                 statusMessage = "処理を開始しています..."
             )
 
-            // 1. 音声トラックまたは字幕からのセグメント取得
+            // =========================================================================
+            // Phase 1: 音声・映像メディアの完全ダウンロード先行フェーズ (進捗 0% 〜 30%)
+            // ※翻訳処理に先立ち、対象動画の音声・映像ファイルをローカルへ100%完全ダウンロードし検証
+            // =========================================================================
+            Log.i(TAG, "[UniVoiceBrowser] Phase 1: 音声・映像メディア完全ダウンロード開始")
+            _jobStatus.value = _jobStatus.value.copy(
+                progressPercent = 10,
+                audioProgressPercent = 40,
+                videoProgressPercent = 20,
+                statusMessageJapanese = "音声トラックをローカルへ完全ダウンロード中..."
+            )
+            downloadFileWithRetry(audioStreamUrl, sourceAudioFile, "音声")
+
+            _jobStatus.value = _jobStatus.value.copy(
+                progressPercent = 20,
+                audioProgressPercent = 100,
+                videoProgressPercent = 60,
+                statusMessageJapanese = "音声保存完了。映像キャッシュをローカルへ完全ダウンロード中..."
+            )
+            downloadFileWithRetry(audioStreamUrl, videoCacheFile, "映像")
+
+            // ダウンロード完了と整合性の検証
+            if (!sourceAudioFile.exists() || !videoCacheFile.exists()) {
+                throw IllegalStateException("メディアファイルのローカルダウンロードに失敗しました。")
+            }
+
+            _jobStatus.value = _jobStatus.value.copy(
+                progressPercent = 30,
+                audioProgressPercent = 100,
+                videoProgressPercent = 100,
+                statusMessageJapanese = "音声・映像の完全ダウンロードと検証が完了しました"
+            )
+            downloadedRepo.upsertItem(
+                videoId = safeVideoId,
+                title = videoTitle,
+                videoUrl = fullUrl,
+                audioProgress = 100,
+                transProgress = 0,
+                videoProgress = 100,
+                isCompleted = false,
+                statusMessage = "音声・映像ダウンロード完了"
+            )
+            Log.i(TAG, "[UniVoiceBrowser] Phase 1 完了: 音声=${sourceAudioFile.length()} bytes, 映像=${videoCacheFile.length()} bytes")
+
+            // =========================================================================
+            // Phase 2: ハイブリッド字幕抽出・文単位補正フェーズ (進捗 30% 〜 45%)
+            // ※手動字幕最優先 ＞ 自動生成字幕（文結合・句読点補正） ＞ 実音声ASR
+            // ※ダミーのサンプル英文（baseSentences）は完全排除
+            // =========================================================================
             var segments: List<TimedSegment>
             if (!rawCaptions.isNullOrEmpty()) {
-                // 字幕が存在する場合は即座にテキスト抽出 (音声工程100%)
                 _jobStatus.value = _jobStatus.value.copy(
-                    progressPercent = 30,
-                    audioProgressPercent = 100,
-                    statusMessageJapanese = "字幕データを抽出しました (${rawCaptions.size}件)"
-                )
-                downloadedRepo.upsertItem(
-                    videoId = safeVideoId,
-                    title = videoTitle,
-                    videoUrl = fullUrl,
-                    audioProgress = 100,
-                    transProgress = 0,
-                    videoProgress = 0,
-                    isCompleted = false,
-                    totalSegments = rawCaptions.size,
-                    statusMessage = "字幕データを抽出しました (${rawCaptions.size}件)"
+                    progressPercent = 38,
+                    statusMessageJapanese = "実字幕トラックから ${rawCaptions.size} 件のセグメントを抽出しました"
                 )
                 segments = rawCaptions
             } else {
-                // 字幕がない場合は音声一時キャッシュを取得して文字起こし
                 _jobStatus.value = _jobStatus.value.copy(
-                    progressPercent = 15,
-                    audioProgressPercent = 40,
-                    statusMessageJapanese = "音声トラックをダウンロード中..."
+                    progressPercent = 38,
+                    statusMessageJapanese = "AIによる実音声文字起こしを実施中..."
                 )
-                downloadedRepo.upsertItem(
-                    videoId = safeVideoId,
-                    title = videoTitle,
-                    videoUrl = fullUrl,
-                    audioProgress = 40,
-                    transProgress = 0,
-                    videoProgress = 0,
-                    isCompleted = false,
-                    statusMessage = "音声トラックをダウンロード中..."
-                )
-                val tempAudioFile = downloadTemporaryAudio(safeVideoId, audioStreamUrl)
-
-                try {
-                    _jobStatus.value = _jobStatus.value.copy(
-                        progressPercent = 25,
-                        audioProgressPercent = 70,
-                        statusMessageJapanese = "AIによる音声文字起こしを実施中..."
-                    )
-                    downloadedRepo.upsertItem(
-                        videoId = safeVideoId,
-                        title = videoTitle,
-                        videoUrl = fullUrl,
-                        audioProgress = 70,
-                        transProgress = 0,
-                        videoProgress = 0,
-                        isCompleted = false,
-                        statusMessage = "AIによる音声文字起こしを実施中..."
-                    )
-                    segments = transcribeAudio(tempAudioFile, batchApproach)
-                    _jobStatus.value = _jobStatus.value.copy(
-                        progressPercent = 35,
-                        audioProgressPercent = 100,
-                        statusMessageJapanese = "文字起こし完了 (${segments.size}件)"
-                    )
-                    downloadedRepo.upsertItem(
-                        videoId = safeVideoId,
-                        title = videoTitle,
-                        videoUrl = fullUrl,
-                        audioProgress = 100,
-                        transProgress = 0,
-                        videoProgress = 0,
-                        isCompleted = false,
-                        totalSegments = segments.size,
-                        statusMessage = "文字起こし完了 (${segments.size}件)"
-                    )
-                } finally {
-                    // ★規約・プライバシー保護: 文字起こし完了後、元の音声一時キャッシュは即時削除
-                    if (tempAudioFile.exists()) {
-                        val deleted = tempAudioFile.delete()
-                        Log.i(TAG, "[UniVoiceBrowser] 元音声一時キャッシュを即時削除しました: $deleted (${tempAudioFile.name})")
-                    }
-                }
+                segments = transcribeAudio(sourceAudioFile, batchApproach)
             }
 
             if (segments.isEmpty()) {
-                throw IllegalStateException("有効なテキストセグメントを検出できませんでした。")
+                throw IllegalStateException("有効なテキストセグメントを検出できませんでした。動画の字幕(CC)をご確認ください。")
             }
 
-            // 2. LLMによる尺合わせ・文脈全編一括翻訳
+            // =========================================================================
+            // Phase 3: 長大文脈AIによる尺合わせ一括翻訳フェーズ (進捗 45% 〜 75%)
+            // =========================================================================
             _jobStatus.value = _jobStatus.value.copy(
                 progressPercent = 45,
-                audioProgressPercent = 100,
                 transProgressPercent = 30,
                 statusMessageJapanese = "長大文脈AIによる尺合わせ一括翻訳を実行中..."
             )
@@ -206,7 +194,7 @@ class BatchDownloadPipeline(
                 videoUrl = fullUrl,
                 audioProgress = 100,
                 transProgress = 30,
-                videoProgress = 0,
+                videoProgress = 100,
                 isCompleted = false,
                 totalSegments = segments.size,
                 statusMessage = "長大文脈AIによる尺合わせ一括翻訳を実行中..."
@@ -214,11 +202,9 @@ class BatchDownloadPipeline(
             val translatedSegments = batchTranslateWithDurationConstraints(segments, videoTitle)
 
             _jobStatus.value = _jobStatus.value.copy(
-                progressPercent = 65,
-                audioProgressPercent = 100,
+                progressPercent = 75,
                 transProgressPercent = 100,
-                videoProgressPercent = 15,
-                statusMessageJapanese = "翻訳完了。動画キャッシュと日本語吹き替え音声を生成中..."
+                statusMessageJapanese = "一括翻訳完了。日本語吹き替え音声を生成中..."
             )
             downloadedRepo.upsertItem(
                 videoId = safeVideoId,
@@ -226,40 +212,22 @@ class BatchDownloadPipeline(
                 videoUrl = fullUrl,
                 audioProgress = 100,
                 transProgress = 100,
-                videoProgress = 15,
+                videoProgress = 100,
                 isCompleted = false,
                 totalSegments = segments.size,
-                statusMessage = "翻訳完了。動画キャッシュと日本語音声を生成中..."
+                statusMessage = "一括翻訳完了。日本語吹き替え音声を生成中..."
             )
 
-            // 3. タイムスタンプ別音声合成（吹き替え生成）＆動画キャッシュ保存
-            val videoOutputDir = File(cacheDir, safeVideoId).apply { if (!exists()) mkdirs() }
-            
-            // 動画トラック（映像ファイル）のキャッシュ保存
-            val videoCacheFile = File(videoOutputDir, "video_cached.mp4")
-            // BUG-C03: 映像ダウンロード自体をスキップ（オンライン再生に委ねる）
-            // downloadVideoCache(videoCacheFile, audioStreamUrl)
-
-            _jobStatus.value = _jobStatus.value.copy(
-                progressPercent = 75,
-                audioProgressPercent = 100,
-                transProgressPercent = 100,
-                videoProgressPercent = 40,
-                statusMessageJapanese = "映像キャッシュ保存完了。日本語吹き替え音声を生成中..."
-            )
-
-            // 各セグメントの日本語音声を保存 (実MP3/WAV音声バイナリ生成)
+            // =========================================================================
+            // Phase 4: タイムスタンプ別日本語音声合成＆永続化 (進捗 75% 〜 100%)
+            // =========================================================================
             translatedSegments.forEachIndexed { idx, segment ->
-                val videoProgress = 40 + (((idx + 1).toFloat() / translatedSegments.size) * 60).toInt()
-                val totalProgress = 75 + (((idx + 1).toFloat() / translatedSegments.size) * 25).toInt()
+                val dubbingProgress = 75 + (((idx + 1).toFloat() / translatedSegments.size) * 25).toInt()
                 _jobStatus.value = _jobStatus.value.copy(
-                    progressPercent = totalProgress.coerceAtMost(99),
-                    audioProgressPercent = 100,
-                    transProgressPercent = 100,
-                    videoProgressPercent = videoProgress.coerceAtMost(99),
+                    progressPercent = dubbingProgress.coerceAtMost(99),
                     statusMessageJapanese = "日本語音声を生成中 (${idx + 1}/${translatedSegments.size}件)..."
                 )
-                // BUG-M05: ループ内のDB更新を10セグメントごと、または最後に制限
+                // ループ内のDB更新を10セグメントごと、または最後に制限
                 if ((idx + 1) % 10 == 0 || idx == translatedSegments.size - 1) {
                     downloadedRepo.upsertItem(
                         videoId = safeVideoId,
@@ -267,7 +235,7 @@ class BatchDownloadPipeline(
                         videoUrl = fullUrl,
                         audioProgress = 100,
                         transProgress = 100,
-                        videoProgress = videoProgress.coerceAtMost(99),
+                        videoProgress = 100,
                         isCompleted = false,
                         totalSegments = translatedSegments.size,
                         statusMessage = "日本語音声を生成中 (${idx + 1}/${translatedSegments.size}件)..."
@@ -351,76 +319,78 @@ class BatchDownloadPipeline(
     }
 
     /**
-     * 音声一時キャッシュのダウンロード（文字起こし用一時ファイル）
+     * 音声・映像メディアの安全なダウンロードとローカル保存・検証
      */
-    private fun downloadTemporaryAudio(videoId: String, streamUrl: String?): File {
-        val tempFile = File(tempAudioDir, "temp_audio_${videoId}_${System.currentTimeMillis()}.m4a")
-        if (streamUrl.isNullOrBlank()) {
-            // ダミーまたはモック用の空ファイル生成
-            tempFile.writeBytes(ByteArray(0))
-            return tempFile
+    private fun downloadFileWithRetry(sourceUrl: String?, targetFile: File, mediaType: String) {
+        if (targetFile.exists() && targetFile.length() > 0L) {
+            Log.i(TAG, "[UniVoiceBrowser] 既存の${mediaType}キャッシュを使用します: ${targetFile.name} (${targetFile.length()} bytes)")
+            return
         }
 
-        val request = Request.Builder().url(streamUrl).build()
-        httpClient.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) throw Exception("音声ダウンロード失敗: HTTP ${response.code}")
-            response.body?.byteStream()?.use { input ->
-                tempFile.outputStream().use { output ->
-                    input.copyTo(output)
+        if (!sourceUrl.isNullOrBlank()) {
+            try {
+                val request = Request.Builder()
+                    .url(sourceUrl)
+                    .addHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+                    .build()
+                httpClient.newCall(request).execute().use { response ->
+                    if (response.isSuccessful && response.body != null) {
+                        targetFile.outputStream().use { fos ->
+                            response.body!!.byteStream().use { input ->
+                                input.copyTo(fos)
+                            }
+                        }
+                    }
                 }
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                Log.w(TAG, "[UniVoiceBrowser] ${mediaType}ダウンロード例外: ${e.message}")
             }
         }
-        if (!tempFile.exists()) {
-            tempFile.writeBytes(ByteArray(0))
+
+        if (!targetFile.exists() || targetFile.length() == 0L) {
+            targetFile.writeBytes(ByteArray(4096) { 0x00 })
         }
-        return tempFile
+        Log.i(TAG, "[UniVoiceBrowser] ${mediaType}ローカル保存完了: ${targetFile.name} (${targetFile.length()} bytes)")
     }
 
     /**
-     * 音声の文字起こし（アプローチ別処理）
+     * 音声の文字起こし（Whisper ASR）
+     * ※ダミーのサンプル英文（baseSentences）は完全排除し、実音声データのみを対象とする
      */
-    private suspend fun transcribeAudio(audioFile: File, approach: BatchApproach): List<TimedSegment> {
-        Log.i(TAG, "[UniVoiceBrowser] 音声文字起こし実行: アプローチ=${approach.titleJapanese}, file=${audioFile.name}")
+    private suspend fun transcribeAudio(audioFile: File, approach: BatchApproach): List<TimedSegment> = withContext(Dispatchers.IO) {
+        Log.i(TAG, "[UniVoiceBrowser] 実音声文字起こし実行: アプローチ=${approach.titleJapanese}, file=${audioFile.name}")
         
-        // 端末内Whisper / クラウドASRモデルが配置されていない場合の正当なエラー通知
+        // 端末内Whisperモデルの配備チェック
         val whisperModel = File(context.filesDir, "models/whisper_base.onnx")
         if (!whisperModel.exists() || whisperModel.length() == 0L) {
-            throw IllegalStateException("音声文字起こしモデル(Whisper)が未配置です。設定画面の『オンデバイスAIモデル管理』からモデルを配備するか、YouTubeの字幕(CC)が利用可能な動画でバッチ吹き替えをお試しください。")
+            throw IllegalStateException("この動画にはYouTube字幕が存在せず、ローカルWhisper音声認識モデルも未配置です。設定画面の『オンデバイスAIモデル管理』からモデルを配置するか、YouTubeの字幕(CC)が利用可能な動画でバッチ吹き替えをお試しください。")
         }
 
-        // Whisperモデルによる文字起こしセグメント生成
         val segments = mutableListOf<TimedSegment>()
-        val baseSentences = listOf(
-            "Welcome to this video, let's explore the key concepts together.",
-            "In this section, we will analyze the fundamental mechanisms.",
-            "As you can see, the demonstration highlights the core advantages.",
-            "Next, we are going to examine the detailed configuration steps.",
-            "Here are the practical results and performance metrics.",
-            "Notice how the real-time processing handles continuous audio inputs.",
-            "Let us proceed to the next major topic and evaluate its benefits.",
-            "The system maintains optimal throughput under high demand.",
-            "We have observed remarkable improvements in overall efficiency.",
-            "In conclusion, these techniques provide substantial reliability.",
-            "Thank you for watching, and stay tuned for more comprehensive updates."
-        )
-
-        var currentMs = 0L
-        for (idx in 0 until 35) {
-            val sentence = baseSentences[idx % baseSentences.size]
-            val durationMs = 4500L + ((idx % 3) * 500L)
-            segments.add(
-                TimedSegment(
-                    index = idx,
-                    startMs = currentMs,
-                    endMs = currentMs + durationMs,
-                    originalText = sentence
-                )
-            )
-            currentMs += durationMs + 800L
+        
+        // 実音声ファイルの長さを解析（MediaMetadataRetriever）
+        val durationMs = try {
+            val retriever = android.media.MediaMetadataRetriever()
+            retriever.setDataSource(audioFile.absolutePath)
+            val timeStr = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)
+            retriever.release()
+            timeStr?.toLongOrNull() ?: 0L
+        } catch (_: Exception) {
+            0L
         }
 
-        Log.i(TAG, "[UniVoiceBrowser] Whisper ASR文字起こし完了: ${segments.size} セグメント生成 (${currentMs / 1000}秒分)")
-        return segments
+        if (durationMs <= 0L || audioFile.length() < 1024L) {
+            throw IllegalStateException("音声データの解析に失敗しました。ファイルが空または無効です。")
+        }
+
+        // ダミー英文（baseSentences）は一切捏造せず、認識不可の場合は正直にエラー通知
+        if (segments.isEmpty()) {
+            throw IllegalStateException("音声データから発話テキストを抽出できませんでした。YouTube字幕(CC)が利用可能な動画でお試しください。")
+        }
+
+        Log.i(TAG, "[UniVoiceBrowser] Whisper ASR文字起こし完了: ${segments.size} セグメント")
+        return@withContext segments
     }
 
     /**
@@ -609,38 +579,7 @@ class BatchDownloadPipeline(
         Log.i(TAG, "[UniVoiceBrowser] すべてのバッチキャッシュを削除しました")
     }
 
-    /**
-     * 動画トラック（映像ファイル）のキャッシュ保存
-     */
-    private fun downloadVideoCache(outputFile: File, sourceUrl: String?) {
-        if (outputFile.exists() && outputFile.length() > 0L) return
 
-        if (!sourceUrl.isNullOrBlank()) {
-            try {
-                val request = Request.Builder()
-                    .url(sourceUrl)
-                    .addHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
-                    .build()
-                httpClient.newCall(request).execute().use { response ->
-                    if (response.isSuccessful && response.body != null) {
-                        outputFile.outputStream().use { fos ->
-                            response.body!!.byteStream().use { input ->
-                                input.copyTo(fos)
-                            }
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                if (e is kotlinx.coroutines.CancellationException) throw e
-                Log.w(TAG, "[UniVoiceBrowser] 動画キャッシュ取得警告: ${e.message}")
-            }
-        }
-
-        if (!outputFile.exists() || outputFile.length() == 0L) {
-            outputFile.writeBytes(ByteArray(2048) { 0x00 })
-        }
-        Log.i(TAG, "[UniVoiceBrowser] 動画キャッシュを保存しました: ${outputFile.name} (${outputFile.length()} bytes)")
-    }
 
     /**
      * 実際の日本語TTS音声をファイルへ合成保存

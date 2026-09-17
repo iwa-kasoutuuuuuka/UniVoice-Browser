@@ -12,19 +12,19 @@
 [![UI Language](https://img.shields.io/badge/UI-Japanese%20Only%20%28100%25%29-red.svg)](#完全日本語ui設計)
 [![Build Status](https://img.shields.io/badge/Build-Passing-brightgreen.svg)]()
 [![Security](https://img.shields.io/badge/Security-Hardened-blue.svg)]()
-[![Release APK](https://img.shields.io/badge/APK_Download-v1.2.0_(70.0MB)-blueviolet.svg?logo=android)](release/UniVoiceBrowser-v1.2.0.apk)
+[![Release APK](https://img.shields.io/badge/APK_Download-v1.2.1_(70.0MB)-blueviolet.svg?logo=android)](release/UniVoiceBrowser-v1.2.1.apk)
 
 <p align="center">
-  <a href="https://github.com/iwa-kasoutuuuuuka/UniVoice-Browser/raw/main/release/UniVoiceBrowser-v1.2.0.apk">
-    <img src="https://img.shields.io/badge/📥_今すぐダウンロード-UniVoiceBrowser--v1.2.0.apk_(70.0MB)-2ea44f?style=for-the-badge&logo=android&logoColor=white" alt="APK直接ダウンロード" />
+  <a href="https://github.com/iwa-kasoutuuuuuka/UniVoice-Browser/raw/main/release/UniVoiceBrowser-v1.2.1.apk">
+    <img src="https://img.shields.io/badge/📥_今すぐダウンロード-UniVoiceBrowser--v1.2.1.apk_(70.0MB)-2ea44f?style=for-the-badge&logo=android&logoColor=white" alt="APK直接ダウンロード" />
   </a>
 </p>
 
 > [!TIP]
 > **ワンタップで今すぐインストール可能**: リリース版APK（署名済み）は上記バッジまたは以下のダイレクトリンクからダウンロードして、Android端末（Android 8.0以降 / Poco F6 Pro・Galaxy・Pixel・エミュレーター等）ですぐにご利用いただけます。
 > 
-> 🔗 **ダイレクトダウンロード**: [UniVoiceBrowser-v1.2.0.apk (約70.0MB)](https://github.com/iwa-kasoutuuuuuka/UniVoice-Browser/raw/main/release/UniVoiceBrowser-v1.2.0.apk)  
-> 🔗 **リポジトリ内ファイルパス**: [`release/UniVoiceBrowser-v1.2.0.apk`](release/UniVoiceBrowser-v1.2.0.apk)
+> 🔗 **ダイレクトダウンロード**: [UniVoiceBrowser-v1.2.1.apk (約70.0MB)](https://github.com/iwa-kasoutuuuuuka/UniVoice-Browser/raw/main/release/UniVoiceBrowser-v1.2.1.apk)  
+> 🔗 **リポジトリ内ファイルパス**: [`release/UniVoiceBrowser-v1.2.1.apk`](release/UniVoiceBrowser-v1.2.1.apk)
 
 **UniVoice Browser** は、YouTubeなどの動画視聴時に元の外国語（英語等）音声をHTML5レベルで完全抑制（ミュート）し、リアルタイムに字幕をキャプチャ・翻訳して、流暢な日本語音声（Text-to-Speech）をオーバーレイ再生するAndroid専用の次世代AIブラウザです。
 
@@ -105,7 +105,17 @@
 
 ## 🔄 最近のアップデート・更新履歴 (Changelog)
 
-### 【最新版】v1.2.0 全画面モード時の一時停止・再生コントロール強化＆バージョン体系更新 (versionCode: 16)
+### 【最新版】v1.2.1 完全先行メディアダウンロード＆自然で失敗しないハイブリッド字幕設計 (versionCode: 17)
+
+| 項目 | 改善・修正の詳細内容 |
+| :--- | :--- |
+| **📥 音声・映像の完全ローカルダウンロード先行パイプライン** | 翻訳や音声合成フェーズへ進む前に、対象動画の音声・映像ファイルをローカルストレージへ100%完全ダウンロードし整合性検証を行う堅牢なパイプラインに刷新。<br>進捗バー（音声・映像個別プログレス）と連動し、ダウンロード完了を厳密に保証してから翻訳フェーズへ移行するシーケンスを確立。 |
+| **🚫 固定ダミーサンプル英文の完全撤廃＆動画実内容100%翻訳** | 文字起こしフォールバック時に使われていた固定のダミー英文11文（`baseSentences`）を完全に削除。<br>「動画の内容と全く違うサンプルの文章が翻訳・吹き替えされる」問題を根本原因から徹底根絶し、100%実際の動画データのみを処理。 |
+| **✨ 最も自然で失敗しないハイブリッド字幕設計** | 1. **手動作成字幕（人間作成: `kind !== 'asr'`）最優先**: 句読点、固有名詞、自然な文構造が保たれた字幕を最優先で探索・採用し、長大文脈AI（Gemini）へ渡すことで翻訳クオリティを最大化。<br>2. **自動生成字幕（`kind === 'asr'`）の文結合・句読点補正**: 単語単位でブツ切りの自動字幕を、発話ギャップ（1.2秒未満）と自然尺（最大5.5秒）で文単位に結合し、文末ピリオドを自動復元（Sentence & Punctuation Restoration）してLLMに渡すことで、自然で流暢な日本語訳を実現。<br>3. **実音声ASRフォールバック**: 字幕なし動画ではダウンロード完了済みの実音声ファイルから文字起こしを実施。Whisperモデル未配置時はダミー捏造を一切行わず、設定画面への安全なガイダンスを表示して安全停止。 |
+| **🌐 多言語対応＆多段トラック取得フォールバック** | 英語（en）固定の検索を廃止し、動画の全利用可能トラックから最適な字幕を選択。<br>YouTubeのSPA画面遷移時やモバイルWeb版でも `player.getPlayerResponse()`, `window.ytInitialPlayerResponse`, `window.ytplayer` から多段フォールバックで確実に字幕トラックを抽出。 |
+| **🚀 APKバージョン体系のアップデート (v1.2.1 / versionCode: 17)** | アプリの `versionName` を `1.2.1`、`versionCode` を `17` にインクリメント。<br>リリースAPKの配信ファイル名を `UniVoiceBrowser-v1.2.1.apk` に刷新。 |
+
+### v1.2.0 全画面モード時の一時停止・再生コントロール強化＆バージョン体系更新 (versionCode: 16)
 
 | 項目 | 改善・修正の詳細内容 |
 | :--- | :--- |

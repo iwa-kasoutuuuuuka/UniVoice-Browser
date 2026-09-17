@@ -613,19 +613,37 @@ object YouTubeScriptInjector {
                 if (prefetchRunning) return;
                 try {
                     const player = document.querySelector('#movie_player, .html5-video-player');
-                    if (!player || typeof player.getPlayerResponse !== 'function') return;
-                    const pr = player.getPlayerResponse();
-                    const tracks = pr && pr.captions && pr.captions.playerCaptionsTracklistRenderer && pr.captions.playerCaptionsTracklistRenderer.captionTracks;
+                    let tracks = null;
+                    if (player && typeof player.getPlayerResponse === 'function') {
+                        try {
+                            const pr = player.getPlayerResponse();
+                            tracks = pr && pr.captions && pr.captions.playerCaptionsTracklistRenderer && pr.captions.playerCaptionsTracklistRenderer.captionTracks;
+                        } catch(_) {}
+                    }
+                    if (!tracks || tracks.length === 0) {
+                        if (window.ytInitialPlayerResponse && window.ytInitialPlayerResponse.captions) {
+                            const cr = window.ytInitialPlayerResponse.captions.playerCaptionsTracklistRenderer;
+                            tracks = cr && cr.captionTracks;
+                        }
+                    }
                     if (!tracks || tracks.length === 0) return;
 
-                    // 英語または最初のキャプショントラックを選択
-                    let targetTrack = tracks.find(function(t) { return t.languageCode === 'en' || (t.vssId && t.vssId.indexOf('.en') !== -1); }) || tracks[0];
+                    // ハイブリッド優先選定: 手動字幕(kind !== 'asr')を最優先、次に自動生成字幕
+                    let targetTrack = tracks.find(function(t) {
+                        return (!t.kind || t.kind !== 'asr') && (t.languageCode === 'en' || (t.vssId && t.vssId.indexOf('.en') !== -1));
+                    }) || tracks.find(function(t) {
+                        return !t.kind || t.kind !== 'asr';
+                    }) || tracks.find(function(t) {
+                        return t.languageCode === 'en' || (t.vssId && t.vssId.indexOf('.en') !== -1);
+                    }) || tracks[0];
+
                     if (!targetTrack || !targetTrack.baseUrl) return;
                     if (targetTrack.baseUrl === lastFetchedTrackBaseUrl) return;
 
                     lastFetchedTrackBaseUrl = targetTrack.baseUrl;
+                    const isManual = !targetTrack.kind || targetTrack.kind !== 'asr';
                     const trackName = (targetTrack.name && targetTrack.name.simpleText) ? targetTrack.name.simpleText : (targetTrack.languageCode || "");
-                    log("YouTube 字幕トラック (timedtext) 先読みフェッチを開始: " + trackName);
+                    log("YouTube 字幕トラック (timedtext) 先読みフェッチを開始: " + trackName + " (手動=" + isManual + ")");
                     prefetchRunning = true;
 
                     fetch(targetTrack.baseUrl + '&fmt=json3')
@@ -643,7 +661,6 @@ object YouTubeScriptInjector {
                                 const dur = ev.dDurationMs || 3000;
                                 const end = start + dur;
 
-                                // 現在再生位置から先、または直前直後のみを先読み対象（最大30件）
                                 if (end >= currentMs - 2000 && queuedCount < 30) {
                                     const text = ev.segs.map(function(s) { return s.utf8 || ''; }).join('').trim();
                                     const sanitized = sanitizeCaption(text);
@@ -666,7 +683,7 @@ object YouTubeScriptInjector {
                 }
             }
 
-            // バッチ翻訳用の全編字幕セグメント抽出ヘルパー
+            // バッチ翻訳用の全編字幕セグメント抽出ヘルパー (ハイブリッド設計)
             window.__univoice_extract_batch_captions = function() {
                 try {
                     const b = window.UniVoiceBridge || bridge;
@@ -677,30 +694,77 @@ object YouTubeScriptInjector {
                     };
 
                     const player = document.querySelector('#movie_player, .html5-video-player');
-                    if (!player || typeof player.getPlayerResponse !== 'function') {
-                        log("バッチ字幕抽出: playerまたはgetPlayerResponseが存在しません");
-                        notifyEmpty();
-                        return;
+                    let tracks = null;
+                    if (player && typeof player.getPlayerResponse === 'function') {
+                        try {
+                            const pr = player.getPlayerResponse();
+                            tracks = pr && pr.captions && pr.captions.playerCaptionsTracklistRenderer && pr.captions.playerCaptionsTracklistRenderer.captionTracks;
+                        } catch(e) {}
                     }
-                    const pr = player.getPlayerResponse();
-                    const tracks = pr && pr.captions && pr.captions.playerCaptionsTracklistRenderer && pr.captions.playerCaptionsTracklistRenderer.captionTracks;
                     if (!tracks || tracks.length === 0) {
-                        log("バッチ字幕抽出: captionTracksが存在しません");
-                        notifyEmpty();
-                        return;
+                        if (window.ytInitialPlayerResponse && window.ytInitialPlayerResponse.captions) {
+                            const cr = window.ytInitialPlayerResponse.captions.playerCaptionsTracklistRenderer;
+                            tracks = cr && cr.captionTracks;
+                        }
                     }
-                    let targetTrack = tracks.find(function(t) { return t.languageCode === 'en' || (t.vssId && t.vssId.indexOf('.en') !== -1); }) || tracks[0];
-                    if (!targetTrack || !targetTrack.baseUrl) {
-                        log("バッチ字幕抽出: targetTrackまたはbaseUrlが存在しません");
+                    if (!tracks || tracks.length === 0) {
+                        if (window.ytplayer && window.ytplayer.config && window.ytplayer.config.args && window.ytplayer.config.args.raw_player_response) {
+                            try {
+                                const rpr = typeof window.ytplayer.config.args.raw_player_response === 'string'
+                                    ? JSON.parse(window.ytplayer.config.args.raw_player_response)
+                                    : window.ytplayer.config.args.raw_player_response;
+                                tracks = rpr && rpr.captions && rpr.captions.playerCaptionsTracklistRenderer && rpr.captions.playerCaptionsTracklistRenderer.captionTracks;
+                            } catch(e) {}
+                        }
+                    }
+
+                    if (!tracks || tracks.length === 0) {
+                        log("バッチ字幕抽出: 利用可能な captionTracks が存在しません");
                         notifyEmpty();
                         return;
                     }
 
-                    log("バッチ用全編字幕トラックを取得中: " + (targetTrack.name ? targetTrack.name.simpleText : targetTrack.languageCode));
+                    // ハイブリッド優先選定:
+                    // 1. 手動作成字幕 (kind !== 'asr') を最優先（句読点・文脈が完全）
+                    // 2. 自動生成字幕 (kind === 'asr') （細切れ・句読点なし）
+                    // 3. 利用可能な最初のトラック
+                    let isManual = false;
+                    let targetTrack = tracks.find(function(t) {
+                        return (!t.kind || t.kind !== 'asr') && (t.languageCode === 'en' || (t.vssId && t.vssId.indexOf('.en') !== -1));
+                    });
+                    if (targetTrack) {
+                        isManual = true;
+                    } else {
+                        targetTrack = tracks.find(function(t) {
+                            return !t.kind || t.kind !== 'asr';
+                        });
+                        if (targetTrack) isManual = true;
+                    }
+
+                    if (!targetTrack) {
+                        targetTrack = tracks.find(function(t) {
+                            return t.languageCode === 'en' || (t.vssId && t.vssId.indexOf('.en') !== -1);
+                        }) || tracks[0];
+                        isManual = (!targetTrack.kind || targetTrack.kind !== 'asr');
+                    }
+
+                    if (!targetTrack || !targetTrack.baseUrl) {
+                        log("バッチ字幕抽出: 有効な targetTrack / baseUrl が取得できませんでした");
+                        notifyEmpty();
+                        return;
+                    }
+
+                    const trackTitle = (targetTrack.name ? (targetTrack.name.simpleText || targetTrack.name) : targetTrack.languageCode) || "track";
+                    log("バッチ用全編字幕トラックを取得中: " + trackTitle + " (手動作成=" + isManual + ")");
+
                     fetch(targetTrack.baseUrl + '&fmt=json3')
-                        .then(function(res) { return res.json(); })
+                        .then(function(res) {
+                            if (!res.ok) throw new Error("HTTP " + res.status);
+                            return res.json();
+                        })
                         .then(function(data) {
-                            if (!data || !data.events) {
+                            if (!data || !data.events || data.events.length === 0) {
+                                log("バッチ字幕抽出: イベントデータが空でした");
                                 notifyEmpty();
                                 return;
                             }
@@ -721,7 +785,15 @@ object YouTubeScriptInjector {
                                 }
                             });
 
-                            // 短すぎる細切れ字幕（YouTube自動生成の単語単位分割）を自然な会話単位（最大5秒）に結合
+                            if (rawList.length === 0) {
+                                log("バッチ字幕抽出: 有効なテキストイベントが0件でした");
+                                notifyEmpty();
+                                return;
+                            }
+
+                            // ハイブリッド文結合処理 (Sentence & Punctuation Restoration)
+                            // 手動字幕: 句読点（.!?）の存在を尊重しつつ自然な発話単位にマージ
+                            // 自動生成字幕: 句読点が存在しないため、発話ギャップと自然尺(最大5.5秒)で結合し、文末ピリオドを補正
                             const mergedList = [];
                             let currentChunk = null;
 
@@ -735,15 +807,23 @@ object YouTubeScriptInjector {
                                 const combinedDuration = item.endMs - currentChunk.startMs;
                                 const isSentenceEnd = /[.!?。！？]$/.test(currentChunk.text);
 
-                                if (gapMs < 1200 && combinedDuration <= 5500 && !isSentenceEnd && currentChunk.text.length < 70) {
+                                // 結合条件: ポーズが短い(1.2秒未満)かつ合計5.5秒以内かつ文末記号で終わっていない
+                                if (gapMs < 1200 && combinedDuration <= 5500 && !isSentenceEnd && currentChunk.text.length < 80) {
                                     currentChunk.endMs = Math.max(currentChunk.endMs, item.endMs);
                                     currentChunk.text = (currentChunk.text + " " + item.text).trim();
                                 } else {
+                                    // 自動生成字幕の場合、文末に句読点がなければピリオドを補正してLLMの文脈理解を最適化
+                                    if (!isManual && !/[.!?。！？]$/.test(currentChunk.text)) {
+                                        currentChunk.text += ".";
+                                    }
                                     mergedList.push(currentChunk);
                                     currentChunk = { startMs: item.startMs, endMs: item.endMs, text: item.text };
                                 }
                             });
                             if (currentChunk) {
+                                if (!isManual && !/[.!?。！？]$/.test(currentChunk.text)) {
+                                    currentChunk.text += ".";
+                                }
                                 mergedList.push(currentChunk);
                             }
 
@@ -756,7 +836,7 @@ object YouTubeScriptInjector {
                                 };
                             });
 
-                            log("バッチ用全編字幕セグメント抽出完了: " + segments.length + "件 (元イベント: " + rawList.length + "件)");
+                            log("バッチ用全編字幕セグメント抽出完了: " + segments.length + "件 (元イベント: " + rawList.length + "件, 手動=" + isManual + ")");
                             if (b && b.onBatchCaptionsExtracted) {
                                 b.onBatchCaptionsExtracted(segments.length > 0 ? JSON.stringify(segments) : "");
                             }
