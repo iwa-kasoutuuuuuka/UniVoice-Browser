@@ -960,6 +960,12 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
                 }
             }.onFailure { error ->
                 Log.e(TAG, "[UniVoiceBrowser] バッチ吹き替え生成失敗: ${error.message}", error)
+                runOnUiThread {
+                    binding.btnStartBatchDubbing.isEnabled = true
+                    binding.btnStartBatchDubbing.text = "再試行"
+                    binding.btnStartBatchDubbing.setBackgroundColor(android.graphics.Color.parseColor("#C62828"))
+                    binding.tvBatchProgressText.text = "エラー: ${error.localizedMessage ?: error.message}"
+                }
             }
         }
     }
