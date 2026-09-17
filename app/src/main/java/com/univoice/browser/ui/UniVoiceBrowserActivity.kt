@@ -853,27 +853,137 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
         val currentUrl = binding.wvBrowser.url
         if (!YouTubeScriptInjector.isVideoWatchUrl(currentUrl)) return
 
-        val parsedSegments = mutableListOf<com.univoice.browser.batch.TimedSegment>()
+        val extractedSegments = mutableListOf<com.univoice.browser.batch.TimedSegment>()
+        var captionTrackUrl: String? = null
+        var audioStreamUrl: String? = null
+
         if (!jsonPayload.isNullOrBlank()) {
             try {
-                val jsonArray = org.json.JSONArray(jsonPayload)
-                for (i in 0 until jsonArray.length()) {
-                    val obj = jsonArray.getJSONObject(i)
-                    parsedSegments.add(
-                        com.univoice.browser.batch.TimedSegment(
-                            index = obj.optInt("index", i),
-                            startMs = obj.optLong("startMs", 0L),
-                            endMs = obj.optLong("endMs", 0L),
-                            originalText = obj.optString("originalText", "")
+                val trimmed = jsonPayload.trim()
+                if (trimmed.startsWith("{")) {
+                    val obj = org.json.JSONObject(trimmed)
+                    captionTrackUrl = obj.optString("captionTrackUrl").takeIf { it.isNotBlank() }
+                    audioStreamUrl = obj.optString("audioStreamUrl").takeIf { it.isNotBlank() }
+                    val segArray = obj.optJSONArray("segments")
+                    if (segArray != null) {
+                        for (i in 0 until segArray.length()) {
+                            val item = segArray.getJSONObject(i)
+                            extractedSegments.add(
+                                com.univoice.browser.batch.TimedSegment(
+                                    index = item.optInt("index", i),
+                                    startMs = item.optLong("startMs", 0L),
+                                    endMs = item.optLong("endMs", 0L),
+                                    originalText = item.optString("originalText", "")
+                                )
+                            )
+                        }
+                    }
+                } else if (trimmed.startsWith("[")) {
+                    val jsonArray = org.json.JSONArray(trimmed)
+                    for (i in 0 until jsonArray.length()) {
+                        val item = jsonArray.getJSONObject(i)
+                        extractedSegments.add(
+                            com.univoice.browser.batch.TimedSegment(
+                                index = item.optInt("index", i),
+                                startMs = item.optLong("startMs", 0L),
+                                endMs = item.optLong("endMs", 0L),
+                                originalText = item.optString("originalText", "")
+                            )
                         )
-                    )
+                    }
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "[UniVoiceBrowser] バッチ字幕パース例外: ${e.message}")
             }
         }
 
-        // 字幕なしの場合、かつ音声文字起こしモデル未配置の場合の案内ガード
+        lifecycleScope.launch {
+            var finalSegments: List<com.univoice.browser.batch.TimedSegment> = extractedSegments
+            if (finalSegments.isEmpty() && !captionTrackUrl.isNullOrBlank()) {
+                binding.layoutBatchProgress.visibility = View.VISIBLE
+                binding.pbBatchProgress.progress = 8
+                binding.tvBatchProgressText.text = "ネイティブOkHttpで字幕トラックを取得中..."
+                val okHttpSegments = fetchCaptionsViaOkHttp(captionTrackUrl)
+                if (okHttpSegments.isNotEmpty()) {
+                    Log.i(TAG, "[UniVoiceBrowser] ネイティブOkHttpフォールバックにより ${okHttpSegments.size} 件の字幕を取得しました")
+                    finalSegments = okHttpSegments
+                }
+            }
+
+            proceedWithBatchDubbing(finalSegments, audioStreamUrl)
+        }
+    }
+
+    private suspend fun fetchCaptionsViaOkHttp(captionTrackUrl: String): List<com.univoice.browser.batch.TimedSegment> = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        val client = okhttp3.OkHttpClient.Builder()
+            .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+            .build()
+
+        val cookieStr = try {
+            android.webkit.CookieManager.getInstance().getCookie(captionTrackUrl)
+        } catch (_: Exception) { null }
+
+        val userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+
+        // 1段目: fmt=json3 でのリクエスト
+        val sep = if (captionTrackUrl.contains("?")) "&" else "?"
+        val json3Url = if (captionTrackUrl.contains("fmt=")) captionTrackUrl else "$captionTrackUrl${sep}fmt=json3"
+        try {
+            val reqBuilder = okhttp3.Request.Builder()
+                .url(json3Url)
+                .addHeader("User-Agent", userAgent)
+            if (!cookieStr.isNullOrBlank()) {
+                reqBuilder.addHeader("Cookie", cookieStr)
+            }
+            client.newCall(reqBuilder.build()).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val body = resp.body?.string().orEmpty()
+                    if (body.startsWith("{") && body.contains("events")) {
+                        val segments = com.univoice.browser.batch.YouTubeTimedTextParser.parseJson3(body)
+                        if (segments.isNotEmpty()) {
+                            return@withContext segments
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "[UniVoiceBrowser] OkHttp JSON3字幕取得警告: ${e.message}")
+        }
+
+        // 2段目: 標準 XML timedtext でのリクエスト
+        try {
+            val reqBuilder = okhttp3.Request.Builder()
+                .url(captionTrackUrl)
+                .addHeader("User-Agent", userAgent)
+            if (!cookieStr.isNullOrBlank()) {
+                reqBuilder.addHeader("Cookie", cookieStr)
+            }
+            client.newCall(reqBuilder.build()).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val body = resp.body?.string().orEmpty()
+                    if (body.contains("<transcript") || body.contains("<text")) {
+                        val segments = com.univoice.browser.batch.YouTubeTimedTextParser.parseXml(body)
+                        if (segments.isNotEmpty()) {
+                            return@withContext segments
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "[UniVoiceBrowser] OkHttp XML字幕取得警告: ${e.message}")
+        }
+
+        emptyList()
+    }
+
+    private fun proceedWithBatchDubbing(
+        parsedSegments: List<com.univoice.browser.batch.TimedSegment>,
+        audioStreamUrl: String?
+    ) {
+        val currentUrl = binding.wvBrowser.url ?: return
+
+        // 字幕なしの場合の事前検査
         if (parsedSegments.isEmpty()) {
             val whisperModel = java.io.File(filesDir, "models/whisper_base.onnx")
             if (!whisperModel.exists() || whisperModel.length() == 0L) {
@@ -883,6 +993,15 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
                 binding.layoutBatchProgress.visibility = View.VISIBLE
                 binding.pbBatchProgress.progress = 0
                 binding.tvBatchProgressText.text = "この動画にはYouTube字幕が付いていません。音声からのAI文字起こしを行うには、設定画面の『オンデバイスAIモデル管理』からWhisperモデルを配備してください。"
+                return
+            }
+
+            if (audioStreamUrl.isNullOrBlank()) {
+                binding.btnStartBatchDubbing.isEnabled = true
+                binding.btnStartBatchDubbing.text = "再試行"
+                binding.layoutBatchProgress.visibility = View.VISIBLE
+                binding.pbBatchProgress.progress = 0
+                binding.tvBatchProgressText.text = "この動画にはYouTube字幕がなく、直接の音声ストリームも取得できませんでした。YouTube字幕(CC)が付いている動画でお試しください。"
                 return
             }
         }
@@ -946,7 +1065,7 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
                 videoId = videoId,
                 videoTitle = videoTitle,
                 rawCaptions = if (parsedSegments.isNotEmpty()) parsedSegments else null,
-                audioStreamUrl = currentUrl
+                audioStreamUrl = audioStreamUrl
             )
             result.onSuccess { segments ->
                 Log.i(TAG, "[UniVoiceBrowser] バッチ吹き替え生成完了: ${segments.size} セグメント")

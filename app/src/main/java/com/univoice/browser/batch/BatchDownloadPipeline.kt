@@ -113,36 +113,33 @@ class BatchDownloadPipeline(
             )
 
             // =========================================================================
-            // Phase 1: 音声・映像メディアの完全ダウンロード先行フェーズ (進捗 0% 〜 30%)
-            // ※翻訳処理に先立ち、対象動画の音声・映像ファイルをローカルへ100%完全ダウンロードし検証
+            // Phase 1: メディアストリーム＆字幕データの検証・ダウンロードフェーズ (進捗 0% 〜 30%)
+            // ※翻訳処理に先立ち、対象リソースの取得・整合性を100%保証
             // =========================================================================
-            Log.i(TAG, "[UniVoiceBrowser] Phase 1: 音声・映像メディア完全ダウンロード開始")
+            Log.i(TAG, "[UniVoiceBrowser] Phase 1: メディア・字幕データ準備開始")
             _jobStatus.value = _jobStatus.value.copy(
                 progressPercent = 10,
-                audioProgressPercent = 40,
-                videoProgressPercent = 20,
-                statusMessageJapanese = "音声トラックをローカルへ完全ダウンロード中..."
+                audioProgressPercent = 50,
+                videoProgressPercent = 30,
+                statusMessageJapanese = if (!rawCaptions.isNullOrEmpty()) "YouTube字幕トラックを検証中..." else "音声ストリームをダウンロード中..."
             )
-            downloadFileWithRetry(audioStreamUrl, sourceAudioFile, "音声")
 
-            _jobStatus.value = _jobStatus.value.copy(
-                progressPercent = 20,
-                audioProgressPercent = 100,
-                videoProgressPercent = 60,
-                statusMessageJapanese = "音声保存完了。映像キャッシュをローカルへ完全ダウンロード中..."
-            )
-            downloadFileWithRetry(audioStreamUrl, videoCacheFile, "映像")
+            if (!audioStreamUrl.isNullOrBlank()) {
+                downloadFileWithRetry(audioStreamUrl, sourceAudioFile, "音声")
+            }
 
-            // ダウンロード完了と整合性の検証
-            if (!sourceAudioFile.exists() || !videoCacheFile.exists()) {
-                throw IllegalStateException("メディアファイルのローカルダウンロードに失敗しました。")
+            // 字幕なし（ASR必須）の場合の厳格な検証
+            if (rawCaptions.isNullOrEmpty()) {
+                if (!sourceAudioFile.exists() || sourceAudioFile.length() < 1024L || isHtmlFile(sourceAudioFile)) {
+                    throw IllegalStateException("この動画にはYouTube字幕が存在せず、音声ストリームの取得にも失敗したため、AI文字起こしを実行できません。")
+                }
             }
 
             _jobStatus.value = _jobStatus.value.copy(
                 progressPercent = 30,
                 audioProgressPercent = 100,
                 videoProgressPercent = 100,
-                statusMessageJapanese = "音声・映像の完全ダウンロードと検証が完了しました"
+                statusMessageJapanese = if (!rawCaptions.isNullOrEmpty()) "字幕データ準備完了 (${rawCaptions.size}件)" else "音声の完全ダウンロード完了"
             )
             downloadedRepo.upsertItem(
                 videoId = safeVideoId,
@@ -152,9 +149,9 @@ class BatchDownloadPipeline(
                 transProgress = 0,
                 videoProgress = 100,
                 isCompleted = false,
-                statusMessage = "音声・映像ダウンロード完了"
+                statusMessage = if (!rawCaptions.isNullOrEmpty()) "字幕データ準備完了" else "音声ダウンロード完了"
             )
-            Log.i(TAG, "[UniVoiceBrowser] Phase 1 完了: 音声=${sourceAudioFile.length()} bytes, 映像=${videoCacheFile.length()} bytes")
+            Log.i(TAG, "[UniVoiceBrowser] Phase 1 完了: 字幕数=${rawCaptions?.size ?: 0}, 音声=${if (sourceAudioFile.exists()) sourceAudioFile.length() else 0} bytes")
 
             // =========================================================================
             // Phase 2: ハイブリッド字幕抽出・文単位補正フェーズ (進捗 30% 〜 45%)
@@ -322,36 +319,61 @@ class BatchDownloadPipeline(
      * 音声・映像メディアの安全なダウンロードとローカル保存・検証
      */
     private fun downloadFileWithRetry(sourceUrl: String?, targetFile: File, mediaType: String) {
-        if (targetFile.exists() && targetFile.length() > 0L) {
-            Log.i(TAG, "[UniVoiceBrowser] 既存の${mediaType}キャッシュを使用します: ${targetFile.name} (${targetFile.length()} bytes)")
-            return
-        }
-
-        if (!sourceUrl.isNullOrBlank()) {
-            try {
-                val request = Request.Builder()
-                    .url(sourceUrl)
-                    .addHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-                    .build()
-                httpClient.newCall(request).execute().use { response ->
-                    if (response.isSuccessful && response.body != null) {
-                        targetFile.outputStream().use { fos ->
-                            response.body!!.byteStream().use { input ->
-                                input.copyTo(fos)
-                            }
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                if (e is kotlinx.coroutines.CancellationException) throw e
-                Log.w(TAG, "[UniVoiceBrowser] ${mediaType}ダウンロード例外: ${e.message}")
+        // 既存キャッシュの整合性検証: 壊れたHTMLファイルやダミーファイル(4096B以下)なら削除して再取得
+        if (targetFile.exists()) {
+            if (targetFile.length() <= 4096L || isHtmlFile(targetFile)) {
+                Log.w(TAG, "[UniVoiceBrowser] 無効または破損した既存${mediaType}キャッシュを破棄: ${targetFile.name} (${targetFile.length()} bytes)")
+                targetFile.delete()
+            } else {
+                Log.i(TAG, "[UniVoiceBrowser] 既存の有効な${mediaType}キャッシュを使用します: ${targetFile.name} (${targetFile.length()} bytes)")
+                return
             }
         }
 
-        if (!targetFile.exists() || targetFile.length() == 0L) {
-            targetFile.writeBytes(ByteArray(4096) { 0x00 })
+        if (sourceUrl.isNullOrBlank() || sourceUrl.contains("youtube.com/watch") || sourceUrl.contains("youtu.be/")) {
+            Log.w(TAG, "[UniVoiceBrowser] ${mediaType}ダウンロード不可: 有効な直接メディアストリームURLではありません ($sourceUrl)")
+            return
         }
-        Log.i(TAG, "[UniVoiceBrowser] ${mediaType}ローカル保存完了: ${targetFile.name} (${targetFile.length()} bytes)")
+
+        try {
+            val request = Request.Builder()
+                .url(sourceUrl)
+                .addHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+                .build()
+            httpClient.newCall(request).execute().use { response ->
+                if (response.isSuccessful && response.body != null) {
+                    val contentType = response.header("Content-Type").orEmpty().lowercase()
+                    if (contentType.contains("text/html") || contentType.contains("text/plain")) {
+                        Log.w(TAG, "[UniVoiceBrowser] ${mediaType}ダウンロード中断: レスポンスがHTMLです ($contentType)")
+                        return
+                    }
+                    targetFile.outputStream().use { fos ->
+                        response.body!!.byteStream().use { input ->
+                            input.copyTo(fos)
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            Log.w(TAG, "[UniVoiceBrowser] ${mediaType}ダウンロード例外: ${e.message}")
+        }
+
+        if (targetFile.exists()) {
+            Log.i(TAG, "[UniVoiceBrowser] ${mediaType}ローカル保存完了: ${targetFile.name} (${targetFile.length()} bytes)")
+        }
+    }
+
+    private fun isHtmlFile(file: File): Boolean {
+        return try {
+            if (!file.exists() || file.length() < 10) return false
+            val buffer = ByteArray(minOf(1024, file.length().toInt()))
+            file.inputStream().use { it.read(buffer) }
+            val header = String(buffer, Charsets.UTF_8).lowercase()
+            header.contains("<!doctype html") || header.contains("<html") || header.contains("<head")
+        } catch (_: Exception) {
+            false
+        }
     }
 
     /**
