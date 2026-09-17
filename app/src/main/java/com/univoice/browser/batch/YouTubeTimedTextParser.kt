@@ -152,8 +152,15 @@ object YouTubeTimedTextParser {
 
     fun sanitizeCaption(raw: String): String {
         return raw
+            // 1. YouTube UIのゴミ文字列を除去 (設定ボタン、言語ラベル等)
             .replace(Regex("\\[?(?:英語|日本語|English|Japanese)?\\s*\\(?(?:自動生成|auto-generated)\\)?\\s*(?:を?クリックして設定)?\\]?", RegexOption.IGNORE_CASE), "")
             .replace(Regex("を?クリックして設定", RegexOption.IGNORE_CASE), "")
+            // 2. 音響効果マーカータグ・BGM表記を除去 ([Music], [Applause], [Laughter], [音楽], [拍手] 等)
+            .replace(Regex("\\[(?:Music|Applause|Laughter|Snickering|Cheering|Gasp|Sigh|Groan|Chuckle|Cough|Yawn|Throat-clearing|音楽|拍手|笑い|歓声|ため息|せき|くしゃみ|歓声と拍手)[^\\]]*\\]", RegexOption.IGNORE_CASE), "")
+            .replace(Regex("\\((?:Music|Applause|Laughter|Snickering|Cheering|Gasp|Sigh|Groan|Chuckle|Cough|Yawn|Throat-clearing|音楽|拍手|笑い|歓声|ため息|せき|くしゃみ)[^\\)]*\\)", RegexOption.IGNORE_CASE), "")
+            // 3. 音符記号や飾り文字を除去
+            .replace(Regex("[♪♫♬♩#]+"), "")
+            // 4. 空白の正規化
             .replace(Regex("\\s+"), " ")
             .trim()
     }

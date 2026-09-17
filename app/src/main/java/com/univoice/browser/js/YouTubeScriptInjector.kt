@@ -657,6 +657,11 @@ object YouTubeScriptInjector {
                 let text = raw
                     .replace(/\[?(?:英語|日本語|English|Japanese)?\s*\(?(?:自動生成|auto-generated)\)?\s*(?:を?クリックして設定)?\]?/gi, '')
                     .replace(/を?クリックして設定/gi, '')
+                    // 2. 音響効果マーカータグ・BGM表記を除去 ([Music], [Applause], [Laughter], [音楽], [拍手] 等)
+                    .replace(/\[(?:Music|Applause|Laughter|Snickering|Cheering|Gasp|Sigh|Groan|Chuckle|Cough|Yawn|Throat-clearing|音楽|拍手|笑い|歓声|ため息|せき|くしゃみ|歓声と拍手)[^\]]*\]/gi, '')
+                    .replace(/\((?:Music|Applause|Laughter|Snickering|Cheering|Gasp|Sigh|Groan|Chuckle|Cough|Yawn|Throat-clearing|音楽|拍手|笑い|歓声|ため息|せき|くしゃみ)[^\)]*\)/gi, '')
+                    // 3. 音符記号や飾り文字を除去
+                    .replace(/[♪♫♬♩#]+/g, '')
                     .replace(/\s+/g, ' ')
                     .trim();
 
