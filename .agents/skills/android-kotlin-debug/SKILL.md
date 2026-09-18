@@ -1,4 +1,4 @@
-﻿---
+---
 name: android-kotlin-debug
 description: >-
   UniVoice Browser プロジェクト（Kotlin/Android WebView + Coroutines + TTS）のデバッグ専用スキル。
@@ -31,6 +31,10 @@ description: >-
 | コルーチンが停止しない | CancellationException飲み込み | Templates T2 |
 | 再起動後データ消失 | 永続化漏れ | Root Causes パターン4 |
 | ビルドエラー (type mismatch) | Kotlin型安全性 | Root Causes パターン5 |
+| 動画と違う内容が翻訳・発話される | ダミー/モック文の残存 | Root Causes パターン6 |
+| 字幕取得失敗 / 0バイト返却 | YouTube PO Token遮断 | Root Causes パターン10 / Templates T10 |
+| 「拍手」「音楽」しか読まない | 非言語音響マーカー未除去 | Root Causes パターン11 / Templates T11 |
+| オフライン音声解析時にクラッシュ | 破損HTMLファイル保存 | Root Causes パターン12 / Templates T12 |
 
 ---
 

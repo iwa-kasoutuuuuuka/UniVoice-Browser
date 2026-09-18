@@ -44,6 +44,9 @@ adb logcat -b crash
 | メディア破損・ダウンロード未完了で翻訳開始 | パターン7（フェーズゲートウェイ違反） | root_causes.md パターン7 |
 | 字幕取得で8秒間フリーズ・タイムアウト | パターン8（JS Promise catch漏れ） | root_causes.md パターン8 |
 | 全画面時にボタンが押せない・反応しない | パターン9（UIモード間コントローラ遮断） | root_causes.md パターン9 |
+| 字幕URLが0バイト / 取得失敗（PO Token） | パターン10（プレイヤー通信フック必須） | root_causes.md パターン10 / templates.md T10 |
+| 「拍手」「音楽」しか読まない・TTS汚染 | パターン11（非言語音響タグ未除去） | root_causes.md パターン11 / templates.md T11 |
+| オフライン音声解析時にクラッシュ・破損HTML | パターン12（破損HTMLキャッシュ） | root_causes.md パターン12 / templates.md T12 |
 
 ---
 

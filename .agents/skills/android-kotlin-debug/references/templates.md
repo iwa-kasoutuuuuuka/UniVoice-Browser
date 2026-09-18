@@ -1,4 +1,4 @@
-﻿# 頻出修正テンプレート
+# 頻出修正テンプレート
 
 コピー＆ペーストして使える、よくある修正パターン。
 
@@ -239,5 +239,74 @@ if (connection.responseCode !in 200..299) {
 }
 connection.inputStream.use { input ->
     file.outputStream().use { output -> input.copyTo(output) }
+}
+```
+
+---
+
+## T10: YouTube プレイヤー通信の透過インターセプト (PO Token 対応)
+
+```javascript
+// ✅ 安全 — 外部fetchせず、公式プレイヤー自身の正規リクエストからクローン捕捉
+const origFetch = window.fetch;
+if (typeof origFetch === 'function') {
+    window.fetch = function() {
+        const args = arguments;
+        const url = (typeof args[0] === 'string') ? args[0] : (args[0] && args[0].url ? args[0].url : "");
+        const promise = origFetch.apply(this, args);
+        if (url && typeof url === 'string' && url.indexOf('timedtext') !== -1) {
+            promise.then(function(res) {
+                try {
+                    const clone = res.clone();
+                    clone.text().then(function(txt) {
+                        if (txt && txt.length > 30) {
+                            bridge.onTimedTextCaptured(url, txt);
+                        }
+                    });
+                } catch(e) {}
+            });
+        }
+        return promise;
+    };
+}
+```
+
+---
+
+## T11: 非言語音響マーカータグの完全除去 (TTS誤読防止)
+
+```kotlin
+// ✅ 安全 — [Music], [Applause], ♪ 等を除去し、空になったら発話なしとしてスキップ
+fun sanitizeCaption(raw: String): String {
+    return raw
+        .replace(Regex("\\[?(?:英語|日本語|English|Japanese)?\\s*\\(?(?:自動生成|auto-generated)\\)?\\s*(?:を?クリックして設定)?\\]?", RegexOption.IGNORE_CASE), "")
+        .replace(Regex("を?クリックして設定", RegexOption.IGNORE_CASE), "")
+        .replace(Regex("\\[(?:Music|Applause|Laughter|Snickering|Cheering|Gasp|Sigh|Groan|Chuckle|Cough|Yawn|Throat-clearing|音楽|拍手|笑い|歓声|ため息|せき|くしゃみ|歓声と拍手)[^\\]]*\\]", RegexOption.IGNORE_CASE), "")
+        .replace(Regex("\\((?:Music|Applause|Laughter|Snickering|Cheering|Gasp|Sigh|Groan|Chuckle|Cough|Yawn|Throat-clearing|音楽|拍手|笑い|歓声|ため息|せき|くしゃみ)[^\\)]*\\)", RegexOption.IGNORE_CASE), "")
+        .replace(Regex("[♪♫♬♩#]+"), "")
+        .replace(Regex("\\s+"), " ")
+        .trim()
+}
+```
+
+---
+
+## T12: 破損HTMLキャッシュの自動検知・破棄
+
+```kotlin
+// ✅ 安全 — ダウンロードされたファイルがHTMLエラーページでないかを検証
+fun validateAndDiscardIfCorruptHtml(file: File): Boolean {
+    if (!file.exists() || file.length() < 1024) return false
+    val header = file.inputStream().use { input ->
+        val buf = ByteArray(256)
+        val read = input.read(buf)
+        if (read > 0) String(buf, 0, read) else ""
+    }
+    if (header.contains("<!DOCTYPE html", ignoreCase = true) || header.contains("<html", ignoreCase = true)) {
+        Log.w(TAG, "破損HTMLファイルを検知したため破棄: ${file.name}")
+        file.delete()
+        return false
+    }
+    return true
 }
 ```
