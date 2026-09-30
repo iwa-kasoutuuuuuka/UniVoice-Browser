@@ -52,12 +52,18 @@ class ModelDownloadManager private constructor(context: Context) {
 
     fun isModelInstalled(filename: String): Boolean {
         val file = getModelFile(filename)
-        return file.exists() && file.length() > 0L
+        val minSize = when (filename) {
+            MODEL_WHISPER -> 10 * 1024 * 1024L // 10MB以上
+            MODEL_VOICEVOX -> 5 * 1024 * 1024L // 5MB以上
+            MODEL_GEMMA -> 50 * 1024 * 1024L // 50MB以上
+            else -> 1024 * 1024L
+        }
+        return file.exists() && file.length() >= minSize
     }
 
     fun getModelSizeFormatted(filename: String): String {
         val file = getModelFile(filename)
-        if (!file.exists() || file.length() == 0L) return "未ダウンロード (0 MB)"
+        if (!isModelInstalled(filename)) return "未ダウンロード"
         val kb = file.length() / 1024.0
         val mb = kb / 1024.0
         return if (mb < 1.0) String.format(Locale.US, "%.1f KB", kb) else String.format(Locale.US, "%.1f MB", mb)
@@ -71,24 +77,18 @@ class ModelDownloadManager private constructor(context: Context) {
         sourceUrl: String? = null
     ): Result<File> = withContext(Dispatchers.IO) {
         val targetFile = getModelFile(filename)
+        val partFile = File(targetFile.parentFile, "${targetFile.name}.part")
         _isDownloadingFlow.value = true
 
         try {
             updateProgress(filename, 10)
 
-            if (sourceUrl.isNullOrBlank()) {
-                // オフラインセットアップ / アセットからの初期化
-                for (p in 20..100 step 20) {
-                    kotlinx.coroutines.delay(100)
-                    updateProgress(filename, p)
-                }
-                FileOutputStream(targetFile).use { fos ->
-                    val bufferSize = if (filename == MODEL_WHISPER) 65536 else 4096
-                    val buffer = ByteArray(bufferSize)
-                    fos.write(buffer)
-                }
-            } else {
-                val url = URL(sourceUrl)
+            // 注: 公式の単一ファイル配布URLは無い（例: ONNX Whisper は encoder/decoder 分割）ため、ダウンロード元URLの指定が必須。
+            // ダミーファイルの配備はしない
+            val resolvedUrl = sourceUrl?.takeIf { it.isNotBlank() }
+                ?: throw IllegalStateException("モデル [$filename] のダウンロード元URLが指定されていません")
+
+            val url = URL(resolvedUrl)
                 val connection = (url.openConnection() as HttpURLConnection).apply {
                     connectTimeout = 10000
                     readTimeout = 30000
@@ -105,7 +105,7 @@ class ModelDownloadManager private constructor(context: Context) {
                 var totalBytesRead = 0L
 
                 connection.inputStream.use { input ->
-                    FileOutputStream(targetFile).use { output ->
+                    FileOutputStream(partFile).use { output ->
                         val buffer = ByteArray(8192)
                         var bytesRead: Int
                         while (input.read(buffer).also { bytesRead = it } != -1) {
@@ -118,15 +118,22 @@ class ModelDownloadManager private constructor(context: Context) {
                         }
                     }
                 }
+
+            if (fileLength > 0 && partFile.length() != fileLength.toLong()) {
+                throw IllegalStateException("ダウンロードが不完全です (${partFile.length()}/$fileLength bytes)")
             }
+            if (targetFile.exists()) targetFile.delete()
+            if (!partFile.renameTo(targetFile)) throw IllegalStateException("モデルファイルの確定に失敗しました")
 
             Log.i(TAG, "[UniVoiceBrowser] モデル配備完了: ${targetFile.absolutePath}")
             updateProgress(filename, 100)
             Result.success(targetFile)
         } catch (e: Exception) {
             Log.e(TAG, "[UniVoiceBrowser] モデルダウンロード失敗: ${e.message}", e)
+            if (e is kotlinx.coroutines.CancellationException) throw e
             Result.failure(e)
         } finally {
+            if (partFile.exists()) partFile.delete()
             _isDownloadingFlow.value = false
         }
     }

@@ -55,7 +55,7 @@ class LocalOnnxTtsEngine(
                 sessionOptions.setInterOpNumThreads(2)
 
                 val modelFile = File(context.filesDir, "models/$ONNX_MODEL_NAME")
-                if (modelFile.exists() && modelFile.length() > 0) {
+                if (com.univoice.browser.modelmgr.ModelDownloadManager.getInstance(context).isModelInstalled(ONNX_MODEL_NAME)) {
                     ortSession = ortEnvironment?.createSession(modelFile.absolutePath, sessionOptions)
                     isModelLoaded = true
                     Log.i(TAG, "[UniVoiceBrowser] ローカルVOICEVOX ONNXセッションを初期化しました (ゼロ遅延音声合成準備完了)")

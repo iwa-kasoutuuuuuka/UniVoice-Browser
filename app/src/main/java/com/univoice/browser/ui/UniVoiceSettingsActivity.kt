@@ -248,14 +248,20 @@ class UniVoiceSettingsActivity : AppCompatActivity() {
         binding.btnDownloadModels.text = "モデルを配備中..."
 
         lifecycleScope.launch {
-            modelMgr.downloadOrInstallModel(com.univoice.browser.modelmgr.ModelDownloadManager.MODEL_GEMMA)
-            modelMgr.downloadOrInstallModel(com.univoice.browser.modelmgr.ModelDownloadManager.MODEL_VOICEVOX)
-            modelMgr.downloadOrInstallModel(com.univoice.browser.modelmgr.ModelDownloadManager.MODEL_WHISPER)
+            val rGemma = modelMgr.downloadOrInstallModel(com.univoice.browser.modelmgr.ModelDownloadManager.MODEL_GEMMA)
+            val rVoicevox = modelMgr.downloadOrInstallModel(com.univoice.browser.modelmgr.ModelDownloadManager.MODEL_VOICEVOX)
+            val rWhisper = modelMgr.downloadOrInstallModel(com.univoice.browser.modelmgr.ModelDownloadManager.MODEL_WHISPER)
             binding.pbModelDownload.visibility = View.GONE
             binding.btnDownloadModels.isEnabled = true
             binding.btnDownloadModels.text = "ローカルAIモデルを再配備 / 更新"
             refreshModelStatus()
-            Toast.makeText(this@UniVoiceSettingsActivity, "ローカルAIモデル（Gemma/VOICEVOX/Whisper）の配備が完了しました", Toast.LENGTH_SHORT).show()
+
+            val successCount = listOf(rGemma, rVoicevox, rWhisper).count { it.isSuccess }
+            if (successCount > 0) {
+                Toast.makeText(this@UniVoiceSettingsActivity, "$successCount 個のローカルモデルの配備が完了しました", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(this@UniVoiceSettingsActivity, "外部モデルURLが未指定のため、クラウドAI / システム標準エンジンが優先されます", Toast.LENGTH_LONG).show()
+            }
         }
     }
 
