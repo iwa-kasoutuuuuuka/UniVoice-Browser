@@ -92,6 +92,8 @@ class FreeWebTranslationEngine : TranslationEngine {
                         }
                     }
                 } catch (e: Exception) {
+                    // キャンセル（動画切替・バッチ中止）は後続のフォールバック翻訳を試さず即座に伝播する
+                    if (e is kotlinx.coroutines.CancellationException) throw e
                     Log.w(TAG, "[UniVoiceBrowser] Google GTX翻訳例外: ${e.message}。MyMemoryへフォールバックします")
                 }
 
@@ -121,6 +123,7 @@ class FreeWebTranslationEngine : TranslationEngine {
                         }
                     }
                 } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
                     Log.w(TAG, "[UniVoiceBrowser] MyMemory翻訳例外: ${e.message}")
                 }
 
@@ -150,6 +153,7 @@ class FreeWebTranslationEngine : TranslationEngine {
                         }
                     }
                 } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
                     Log.e(TAG, "[UniVoiceBrowser] Google Web翻訳例外: ${e.message}")
                 }
 

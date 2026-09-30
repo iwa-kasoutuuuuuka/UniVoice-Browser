@@ -486,6 +486,10 @@ class UniVoicePipelineManager(
                 return null
             }
 
+            if (generation != seekGeneration.get()) {
+                Log.d(TAG, "[UniVoiceBrowser] 翻訳中にシーク・動画切替が起きたため破棄: $cleanText")
+                return null
+            }
             cue.translatedText = translated
             // 文脈は翻訳順（=字幕順）で記録し、次の行の翻訳に使う
             if (!isAlreadyJapanese) rememberPair(cleanText, translated)
@@ -707,6 +711,8 @@ class UniVoicePipelineManager(
      */
      fun resetForNewVideo(videoId: String? = null) {
          Log.i(TAG, "[UniVoiceBrowser] 新しい動画再生に合わせてパイプライン状態をリセット: $videoId")
+         // 前動画の字幕の先読み翻訳を中止（切替後に不要な翻訳APIを呼ばない）
+         prefetchJob?.cancel()
          lastReceivedText = ""
          lastReceivedTime = 0L
          synchronized(recentPairs) { recentPairs.clear() }

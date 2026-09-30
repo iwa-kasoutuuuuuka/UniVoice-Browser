@@ -124,9 +124,10 @@ class SpeechQueue(private val now: () -> Long = System::currentTimeMillis) {
 
     private fun staleReason(p: PreparedCue, state: PlaybackState, t: Long): String? {
         val cue = p.cue
+        // シーク・動画切替より前に受け取った行（翻訳中に切替が起きた行を含む）は読まない
+        if (p.generation != state.generation) return "シーク・動画切替前の行"
         return if (cue.isTimed) {
             when {
-                p.generation != state.generation -> "シーク前の行"
                 !state.hasPosition -> null
                 state.positionMs > cue.endTimeMs + TIMED_STALE_TOLERANCE_MS -> "再生位置を過ぎた行"
                 state.isPlaying && state.positionMs - cue.startTimeMs > TIMED_MAX_LATE_START_MS -> "開始時刻から大きく遅れた行"

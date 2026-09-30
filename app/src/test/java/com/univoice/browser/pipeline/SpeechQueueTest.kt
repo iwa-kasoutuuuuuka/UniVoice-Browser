@@ -77,6 +77,14 @@ class SpeechQueueTest {
     }
 
     @Test
+    fun onScreenCaptionFromBeforeSwitchIsDropped() {
+        queue.add(untimed(1_000, text = "old video line"))
+        val result = queue.next(state(1_000, generation = 1))
+        assertEquals(listOf("old video line"), result.dropped.map { it.first.cleanText })
+        assertTrue(result.decision is SpeechQueue.Decision.Wait)
+    }
+
+    @Test
     fun laggingOnScreenCaptionsAreSkippedToCatchUp() {
         queue.add(untimed(1_000, createdAt = wall - 9_000, text = "old"))
         queue.add(untimed(5_000, createdAt = wall - 7_000, text = "older2"))

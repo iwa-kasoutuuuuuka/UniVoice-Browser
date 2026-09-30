@@ -47,8 +47,8 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
     private lateinit var pipelineManager: UniVoicePipelineManager
     private var batchPipeline: com.univoice.browser.batch.BatchDownloadPipeline? = null
     private var batchJob: kotlinx.coroutines.Job? = null
-    private var batchExtractionTimeoutRunnable: Runnable? = null
-    private var audioCaptureWaitJob: kotlinx.coroutines.Job? = null
+    /** 字幕抽出の結果待ち（JS抽出結果 または プレーヤー字幕の傍受で完了） */
+    private var batchCaptionsResult: kotlinx.coroutines.CompletableDeferred<String?>? = null
     private var batchPlayer: com.univoice.browser.batch.BatchDubbingPlayer? = null
     private var completedBatchSegments: List<com.univoice.browser.batch.TimedSegment>? = null
 
@@ -56,7 +56,6 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
     private var pendingDubbingPlayback: (() -> Unit)? = null
 
     // バッチ字幕抽出の保留状態管理＆安全タイムアウト
-    private var isBatchExtractionPending: Boolean = false
     private var isBatchNeedsSettings: Boolean = false
     private var lastCapturedTimedTextUrl: String? = null
     private var lastCapturedTimedTextBody: String? = null
@@ -111,6 +110,8 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
     companion object {
         private const val TAG = "UniVoiceBrowserActivity"
         private const val DEFAULT_HOMEPAGE = "https://m.youtube.com/?hl=ja&gl=JP"
+        private const val BATCH_CAPTION_TIMEOUT_MS = 8000L
+        private const val BATCH_AUDIO_CAPTURE_TIMEOUT_MS = 2500L
         /** YouTube の音声専用 itag (AAC: 139/140/141, Vorbis: 171, Opus: 249/250/251) */
         private val AUDIO_ONLY_ITAGS = setOf("139", "140", "141", "171", "249", "250", "251")
     }
@@ -174,8 +175,7 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
                     return
                 }
                 // バッチ吹き替え再生・ジョブの停止と状態クリア
-                batchJob?.cancel()
-                batchJob = null
+                cancelBatchDubbing()
                 batchPlayer?.stopDubbing()
                 completedBatchSegments = null
 
@@ -582,16 +582,10 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
             onVideoNavigatedCallback = { url, videoId ->
                 runOnUiThread {
                     // SPA動画切替時に前の動画のバッチ吹き替えを安全に破棄・停止
-                    batchJob?.cancel()
-                    batchJob = null
+                    cancelBatchDubbing()
                     batchPlayer?.stopDubbing()
                     completedBatchSegments = null
                     isBatchNeedsSettings = false
-                    isBatchExtractionPending = false
-                    batchExtractionTimeoutRunnable?.let { binding.root.removeCallbacks(it) }
-                    batchExtractionTimeoutRunnable = null
-                    audioCaptureWaitJob?.cancel()
-                    audioCaptureWaitJob = null
                     lastCapturedTimedTextUrl = null
                     lastCapturedTimedTextBody = null
                     lastCapturedTimedTextHeaders = null
@@ -612,7 +606,7 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
                 }
             },
             onBatchCaptionsExtractedCallback = { jsonPayload ->
-                runOnUiThread { handleExtractedBatchCaptions(jsonPayload) }
+                runOnUiThread { batchCaptionsResult?.complete(jsonPayload) }
             },
             onTimedTextCapturedCallback = { url, body ->
                 runOnUiThread {
@@ -621,30 +615,9 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
                         lastCapturedTimedTextBody = body
                         // リアルタイム経路: 字幕トラック本文を再生位置に合わせた読み上げの元データにする
                         pipelineManager.onCaptionTrackCaptured(url, body)
-                        if (isBatchExtractionPending) {
-                            Log.i(TAG, "[UniVoiceBrowser] 保留中のバッチ抽出をインターセプト字幕で即時解決試行")
-                            val segments = if (body.startsWith("{")) {
-                                com.univoice.browser.batch.YouTubeTimedTextParser.parseJson3(body)
-                            } else {
-                                com.univoice.browser.batch.YouTubeTimedTextParser.parseXml(body)
-                            }
-                            if (segments.isNotEmpty()) {
-                                Log.i(TAG, "[UniVoiceBrowser] インターセプト字幕から ${segments.size} 件のセグメントを展開成功")
-                                val payload = org.json.JSONObject().apply {
-                                    put("segments", org.json.JSONArray().apply {
-                                        segments.forEach { s ->
-                                            put(org.json.JSONObject().apply {
-                                                put("index", s.index)
-                                                put("startMs", s.startMs)
-                                                put("endMs", s.endMs)
-                                                put("originalText", s.originalText)
-                                            })
-                                        }
-                                    })
-                                    put("captionTrackUrl", url ?: "")
-                                }.toString()
-                                handleExtractedBatchCaptions(payload)
-                            }
+                        // バッチ字幕抽出の待機中なら、傍受した字幕で即時に解決（本文は lastCapturedTimedTextBody から展開）
+                        if (batchCaptionsResult?.complete(null) == true) {
+                            Log.i(TAG, "[UniVoiceBrowser] 保留中のバッチ抽出をインターセプト字幕で即時解決")
                         }
                     }
                 }
@@ -902,8 +875,18 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
         }
     }
 
+    /** ページ内のバッチ用字幕抽出結果 */
+    private data class BatchCaptionPayload(
+        val segments: List<com.univoice.browser.batch.TimedSegment>,
+        val captionTrackUrl: String?,
+        val audioStreamUrl: String?
+    )
+
     /**
      * 案B: ユーザーが「吹き替えを開始」ボタンをタップした時に実行されるバッチ処理
+     *
+     * 字幕抽出（最大8秒待ち）→ 字幕が無ければ音声ストリーム捕捉（最大2.5秒待ち）→ パイプライン実行 を
+     * 1本のコルーチンで行う。動画切替・戻る操作では cancelBatchDubbing() 1回ですべて停止する
      */
     private fun startBatchDubbingProcess() {
         val currentUrl = binding.wvBrowser.url
@@ -911,8 +894,11 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
             android.widget.Toast.makeText(this, "動画再生ページで実行してください", android.widget.Toast.LENGTH_SHORT).show()
             return
         }
+        if (batchJob?.isActive == true) {
+            Log.w(TAG, "[UniVoiceBrowser] すでにバッチ吹き替え処理が実行中のため多重起動を抑止します")
+            return
+        }
 
-        isBatchExtractionPending = true
         isBatchNeedsSettings = false
         binding.btnStartBatchDubbing.isEnabled = false
         binding.btnStartBatchDubbing.text = "解析中..."
@@ -920,112 +906,145 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
         binding.pbBatchProgress.progress = 5
         binding.tvBatchProgressText.text = "YouTube字幕データの抽出を試行中..."
 
-        // 安全タイマー: JavaScriptからの応答が8000ms以内に来ない場合の自動フォールバック
-        // 前回のタイマーが残っていると今回の抽出を早期に打ち切るため、必ず解除してから再設定する
-        val timeoutHandler = binding.root.handler ?: android.os.Handler(android.os.Looper.getMainLooper())
-        batchExtractionTimeoutRunnable?.let { timeoutHandler.removeCallbacks(it) }
-        val timeoutRunnable = Runnable {
-            batchExtractionTimeoutRunnable = null
-            if (isBatchExtractionPending) {
-                Log.w(TAG, "[UniVoiceBrowser] 字幕抽出スクリプトの応答タイムアウト(8000ms)。直接フォールバック処理を実行します")
-                handleExtractedBatchCaptions(null)
+        val captionsResult = kotlinx.coroutines.CompletableDeferred<String?>()
+        batchCaptionsResult = captionsResult
+        batchJob = lifecycleScope.launch {
+            try {
+                // まずWebページ内の字幕データを抽出試行（字幕がある場合は最速かつ無料/API消費ゼロで高品質バッチ生成）
+                binding.wvBrowser.evaluateJavascript(
+                    "if (typeof window.__univoice_extract_batch_captions === 'function') { window.__univoice_extract_batch_captions(); } else if (window.UniVoiceBridge && window.UniVoiceBridge.onBatchCaptionsExtracted) { window.UniVoiceBridge.onBatchCaptionsExtracted(''); }",
+                    null
+                )
+                // 安全タイマー: JavaScript からの応答（またはプレーヤー字幕の傍受）が8秒以内に来ない場合はフォールバック
+                val jsonPayload = kotlinx.coroutines.withTimeoutOrNull(BATCH_CAPTION_TIMEOUT_MS) { captionsResult.await() }
+                if (!captionsResult.isCompleted) {
+                    Log.w(TAG, "[UniVoiceBrowser] 字幕抽出スクリプトの応答タイムアウト(${BATCH_CAPTION_TIMEOUT_MS}ms)。直接フォールバック処理を実行します")
+                }
+                batchCaptionsResult = null
+
+                val payload = parseBatchCaptionPayload(jsonPayload)
+                val segments = resolveBatchCaptions(payload)
+                val audioUrl = if (segments.isEmpty()) {
+                    // 字幕なし: 音声文字起こしが必要（Gemini のみ対応。オンデバイスWhisper推論は未実装）
+                    if (configManager.currentSettings.geminiApiKey.isBlank()) {
+                        showBatchNeedsSettings()
+                        return@launch
+                    }
+                    awaitAudioStreamUrl(payload.audioStreamUrl) ?: run {
+                        showBatchRetry("音声ストリームの捕捉を待機しましたが取得できませんでした。動画を一度再生してから再度お試しください。")
+                        return@launch
+                    }
+                } else {
+                    payload.audioStreamUrl ?: lastCapturedAudioStreamUrl
+                }
+                runBatchPipeline(segments, audioUrl)
+            } finally {
+                batchCaptionsResult = null
             }
         }
-        batchExtractionTimeoutRunnable = timeoutRunnable
-        timeoutHandler.postDelayed(timeoutRunnable, 8000)
-
-        // まずWebページ内の字幕データを抽出試行（字幕がある場合は最速かつ無料/API消費ゼロで高品質バッチ生成）
-        binding.wvBrowser.evaluateJavascript(
-            "if (typeof window.__univoice_extract_batch_captions === 'function') { window.__univoice_extract_batch_captions(); } else if (window.UniVoiceBridge && window.UniVoiceBridge.onBatchCaptionsExtracted) { window.UniVoiceBridge.onBatchCaptionsExtracted(''); }",
-            null
-        )
     }
 
-    private fun handleExtractedBatchCaptions(jsonPayload: String?) {
-        // 重複実行防止: バッチ抽出保留中でない場合は無視
-        if (!isBatchExtractionPending) {
-            Log.d(TAG, "[UniVoiceBrowser] バッチ抽出はすでに完了またはキャンセル済みのためコールバックを無視します")
-            return
-        }
-        isBatchExtractionPending = false
-        batchExtractionTimeoutRunnable?.let { binding.root.removeCallbacks(it) }
-        batchExtractionTimeoutRunnable = null
+    /** バッチ吹き替えの抽出・待機・パイプライン実行をすべて停止 */
+    private fun cancelBatchDubbing() {
+        batchJob?.cancel()
+        batchJob = null
+        batchCaptionsResult = null
+    }
 
-        val currentUrl = binding.wvBrowser.url
-        if (!YouTubeScriptInjector.isVideoWatchUrl(currentUrl)) return
-
-        val extractedSegments = mutableListOf<com.univoice.browser.batch.TimedSegment>()
+    private fun parseBatchCaptionPayload(jsonPayload: String?): BatchCaptionPayload {
+        val segments = mutableListOf<com.univoice.browser.batch.TimedSegment>()
         var captionTrackUrl: String? = null
         var audioStreamUrl: String? = null
-
-        if (!jsonPayload.isNullOrBlank()) {
-            try {
-                val trimmed = jsonPayload.trim()
-                if (trimmed.startsWith("{")) {
-                    val obj = org.json.JSONObject(trimmed)
+        val trimmed = jsonPayload?.trim().orEmpty()
+        try {
+            val segArray = when {
+                trimmed.startsWith("{") -> org.json.JSONObject(trimmed).let { obj ->
                     captionTrackUrl = obj.optString("captionTrackUrl").takeIf { it.isNotBlank() }
                     audioStreamUrl = obj.optString("audioStreamUrl").takeIf { it.isNotBlank() }
-                    val segArray = obj.optJSONArray("segments")
-                    if (segArray != null) {
-                        for (i in 0 until segArray.length()) {
-                            val item = segArray.getJSONObject(i)
-                            extractedSegments.add(
-                                com.univoice.browser.batch.TimedSegment(
-                                    index = item.optInt("index", i),
-                                    startMs = item.optLong("startMs", 0L),
-                                    endMs = item.optLong("endMs", 0L),
-                                    originalText = item.optString("originalText", "")
-                                )
-                            )
-                        }
-                    }
-                } else if (trimmed.startsWith("[")) {
-                    val jsonArray = org.json.JSONArray(trimmed)
-                    for (i in 0 until jsonArray.length()) {
-                        val item = jsonArray.getJSONObject(i)
-                        extractedSegments.add(
-                            com.univoice.browser.batch.TimedSegment(
-                                index = item.optInt("index", i),
-                                startMs = item.optLong("startMs", 0L),
-                                endMs = item.optLong("endMs", 0L),
-                                originalText = item.optString("originalText", "")
-                            )
+                    obj.optJSONArray("segments")
+                }
+                trimmed.startsWith("[") -> org.json.JSONArray(trimmed)
+                else -> null
+            }
+            if (segArray != null) {
+                for (i in 0 until segArray.length()) {
+                    val item = segArray.getJSONObject(i)
+                    segments.add(
+                        com.univoice.browser.batch.TimedSegment(
+                            index = item.optInt("index", i),
+                            startMs = item.optLong("startMs", 0L),
+                            endMs = item.optLong("endMs", 0L),
+                            originalText = item.optString("originalText", "")
                         )
-                    }
+                    )
                 }
-            } catch (e: Exception) {
-                Log.w(TAG, "[UniVoiceBrowser] バッチ字幕パース例外: ${e.message}")
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "[UniVoiceBrowser] バッチ字幕パース例外: ${e.message}")
+        }
+        return BatchCaptionPayload(segments, captionTrackUrl, audioStreamUrl)
+    }
+
+    /** ページ抽出 → 傍受済みプレーヤー字幕 → OkHttp 直接取得 の順で字幕セグメントを確定 */
+    private suspend fun resolveBatchCaptions(payload: BatchCaptionPayload): List<com.univoice.browser.batch.TimedSegment> {
+        if (payload.segments.isNotEmpty()) return payload.segments
+
+        lastCapturedTimedTextBody?.takeIf { it.isNotBlank() }?.let { body ->
+            val parsed = if (body.startsWith("{")) {
+                com.univoice.browser.batch.YouTubeTimedTextParser.parseJson3(body)
+            } else {
+                com.univoice.browser.batch.YouTubeTimedTextParser.parseXml(body)
+            }
+            if (parsed.isNotEmpty()) {
+                Log.i(TAG, "[UniVoiceBrowser] 捕捉済みTimedTextボディから ${parsed.size} 件の字幕を展開成功")
+                return parsed
             }
         }
 
-        lifecycleScope.launch {
-            var finalSegments: List<com.univoice.browser.batch.TimedSegment> = extractedSegments
-            if (finalSegments.isEmpty() && !lastCapturedTimedTextBody.isNullOrBlank()) {
-                val body = lastCapturedTimedTextBody!!
-                val parsed = if (body.startsWith("{")) {
-                    com.univoice.browser.batch.YouTubeTimedTextParser.parseJson3(body)
-                } else {
-                    com.univoice.browser.batch.YouTubeTimedTextParser.parseXml(body)
-                }
-                if (parsed.isNotEmpty()) {
-                    Log.i(TAG, "[UniVoiceBrowser] 捕捉済みTimedTextボディから ${parsed.size} 件の字幕を展開成功")
-                    finalSegments = parsed
-                }
+        if (!payload.captionTrackUrl.isNullOrBlank() || !lastCapturedTimedTextUrl.isNullOrBlank()) {
+            binding.pbBatchProgress.progress = 8
+            binding.tvBatchProgressText.text = "ネイティブOkHttpで字幕トラックを取得中..."
+            val okHttpSegments = fetchCaptionsViaOkHttp(payload.captionTrackUrl)
+            if (okHttpSegments.isNotEmpty()) {
+                Log.i(TAG, "[UniVoiceBrowser] ネイティブOkHttpフォールバックにより ${okHttpSegments.size} 件の字幕を取得しました")
+                return okHttpSegments
             }
-
-            if (finalSegments.isEmpty() && (!captionTrackUrl.isNullOrBlank() || !lastCapturedTimedTextUrl.isNullOrBlank())) {
-                binding.layoutBatchProgress.visibility = View.VISIBLE
-                binding.pbBatchProgress.progress = 8
-                binding.tvBatchProgressText.text = "ネイティブOkHttpで字幕トラックを取得中..."
-                val okHttpSegments = fetchCaptionsViaOkHttp(captionTrackUrl)
-                if (okHttpSegments.isNotEmpty()) {
-                    Log.i(TAG, "[UniVoiceBrowser] ネイティブOkHttpフォールバックにより ${okHttpSegments.size} 件の字幕を取得しました")
-                    finalSegments = okHttpSegments
-                }
-            }
-
-            proceedWithBatchDubbing(finalSegments, audioStreamUrl)
         }
+        return emptyList()
+    }
+
+    /** 音声ストリームURLを確定。未捕捉なら動画を消音再生してネットワーク捕捉を最大2.5秒待つ */
+    private suspend fun awaitAudioStreamUrl(fromPage: String?): String? {
+        fromPage?.takeIf { it.isNotBlank() }?.let { return it }
+        lastCapturedAudioStreamUrl?.takeIf { it.isNotBlank() }?.let { return it }
+
+        binding.pbBatchProgress.progress = 5
+        binding.tvBatchProgressText.text = "音声ストリームを捕捉中..."
+        binding.wvBrowser.evaluateJavascript(
+            "(function(){ const v = document.querySelector('video'); if (v) { v.muted = true; if (v.paused) v.play(); } })()",
+            null
+        )
+        return kotlinx.coroutines.withTimeoutOrNull(BATCH_AUDIO_CAPTURE_TIMEOUT_MS) {
+            while (lastCapturedAudioStreamUrl.isNullOrBlank()) kotlinx.coroutines.delay(200)
+            lastCapturedAudioStreamUrl
+        }
+    }
+
+    private fun showBatchNeedsSettings() {
+        isBatchNeedsSettings = true
+        binding.btnStartBatchDubbing.isEnabled = true
+        binding.btnStartBatchDubbing.text = "設定を開く"
+        binding.layoutBatchProgress.visibility = View.VISIBLE
+        binding.pbBatchProgress.progress = 0
+        binding.tvBatchProgressText.text = "この動画にはYouTube字幕が存在しません。AIによる音声自動文字起こし・翻訳を行うには、設定画面でGemini APIキーを設定してください。"
+    }
+
+    private fun showBatchRetry(message: String) {
+        binding.btnStartBatchDubbing.isEnabled = true
+        binding.btnStartBatchDubbing.text = "再試行"
+        binding.layoutBatchProgress.visibility = View.VISIBLE
+        binding.pbBatchProgress.progress = 0
+        binding.tvBatchProgressText.text = message
     }
 
     private suspend fun fetchCaptionsViaOkHttp(captionTrackUrl: String?): List<com.univoice.browser.batch.TimedSegment> = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
@@ -1125,64 +1144,15 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
         emptyList()
     }
 
-    private fun proceedWithBatchDubbing(
+    /**
+     * バッチ吹き替えパイプラインを実行（呼び出し元の batchJob 内で実行され、キャンセルで処理ごと停止する）
+     */
+    private suspend fun runBatchPipeline(
         parsedSegments: List<com.univoice.browser.batch.TimedSegment>,
         audioStreamUrl: String?
-    ) {
-        if (batchJob?.isActive == true) {
-            Log.w(TAG, "[UniVoiceBrowser] すでにバッチ吹き替えパイプラインが実行中のため多重起動を抑止します")
-            return
-        }
-        val currentUrl = binding.wvBrowser.url ?: return
-        val effectiveAudioUrl = if (!audioStreamUrl.isNullOrBlank()) audioStreamUrl else lastCapturedAudioStreamUrl
+    ) = kotlinx.coroutines.coroutineScope {
+        val currentUrl = binding.wvBrowser.url ?: return@coroutineScope
         val settings = configManager.currentSettings
-        // 音声文字起こしは Gemini のみ対応（オンデバイスWhisper推論は未実装のため、モデル有無では判定しない）
-        val hasGemini = settings.geminiApiKey.isNotBlank()
-
-        // 字幕なしの場合の事前検査
-        if (parsedSegments.isEmpty()) {
-            if (!hasGemini) {
-                isBatchNeedsSettings = true
-                binding.btnStartBatchDubbing.isEnabled = true
-                binding.btnStartBatchDubbing.text = "設定を開く"
-                binding.layoutBatchProgress.visibility = View.VISIBLE
-                binding.pbBatchProgress.progress = 0
-                binding.tvBatchProgressText.text = "この動画にはYouTube字幕が存在しません。AIによる音声自動文字起こし・翻訳を行うには、設定画面でGemini APIキーを設定してください。"
-                return
-            }
-
-            if (effectiveAudioUrl.isNullOrBlank()) {
-                // 音声ストリームがまだ捕捉されていない場合、動画を微弱再生してネットワーク捕捉を待機
-                binding.layoutBatchProgress.visibility = View.VISIBLE
-                binding.btnStartBatchDubbing.isEnabled = false
-                binding.pbBatchProgress.progress = 5
-                binding.tvBatchProgressText.text = "音声ストリームを捕捉中..."
-                binding.wvBrowser.evaluateJavascript(
-                    "(function(){ const v = document.querySelector('video'); if (v) { v.muted = true; if (v.paused) v.play(); } })()",
-                    null
-                )
-                if (audioCaptureWaitJob?.isActive == true) return
-                audioCaptureWaitJob = lifecycleScope.launch {
-                    var waitedMs = 0
-                    while (waitedMs < 2500 && lastCapturedAudioStreamUrl.isNullOrBlank()) {
-                        kotlinx.coroutines.delay(200)
-                        waitedMs += 200
-                    }
-                    val finalAudioUrl = lastCapturedAudioStreamUrl
-                    if (finalAudioUrl.isNullOrBlank()) {
-                        binding.btnStartBatchDubbing.isEnabled = true
-                        binding.btnStartBatchDubbing.text = "再試行"
-                        binding.layoutBatchProgress.visibility = View.VISIBLE
-                        binding.pbBatchProgress.progress = 0
-                        binding.tvBatchProgressText.text = "音声ストリームの捕捉を待機しましたが取得できませんでした。動画を一度再生してから再度お試しください。"
-                    } else {
-                        proceedWithBatchDubbing(parsedSegments, finalAudioUrl)
-                    }
-                }
-                return
-            }
-        }
-
         val videoId = YouTubeScriptInjector.extractVideoId(currentUrl)
         val videoTitle = binding.wvBrowser.title ?: "YouTube Video ($videoId)"
 
@@ -1197,7 +1167,7 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
         }
 
         val pipeline = com.univoice.browser.batch.BatchDownloadPipeline(
-            context = this,
+            context = this@UniVoiceBrowserActivity,
             geminiApiKey = settings.geminiApiKey,
             geminiModelName = settings.geminiModelName,
             batchApproach = settings.batchApproach,
@@ -1206,63 +1176,54 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
         )
         batchPipeline = pipeline
 
-        batchJob?.cancel()
-        batchJob = lifecycleScope.launch {
+        val statusJob = launch {
             pipeline.jobStatus.collectLatest { status ->
-                runOnUiThread {
-                    binding.pbBatchProgress.progress = status.progressPercent
-                    binding.tvBatchProgressText.text = status.statusMessageJapanese
+                binding.pbBatchProgress.progress = status.progressPercent
+                binding.tvBatchProgressText.text = status.statusMessageJapanese
 
-                    // 3要素個別進捗の反映
-                    binding.pbAudioProgress.progress = status.audioProgressPercent
-                    binding.tvAudioProgressText.text = "${status.audioProgressPercent}%"
+                // 3要素個別進捗の反映
+                binding.pbAudioProgress.progress = status.audioProgressPercent
+                binding.tvAudioProgressText.text = "${status.audioProgressPercent}%"
 
-                    binding.pbTransProgress.progress = status.transProgressPercent
-                    binding.tvTransProgressText.text = "${status.transProgressPercent}%"
+                binding.pbTransProgress.progress = status.transProgressPercent
+                binding.tvTransProgressText.text = "${status.transProgressPercent}%"
 
-                    binding.pbVideoProgress.progress = status.videoProgressPercent
-                    binding.tvVideoProgressText.text = "${status.videoProgressPercent}%"
+                binding.pbVideoProgress.progress = status.videoProgressPercent
+                binding.tvVideoProgressText.text = "${status.videoProgressPercent}%"
 
-                    if (status.isCompleted) {
-                        binding.btnStartBatchDubbing.isEnabled = true
-                        binding.btnStartBatchDubbing.text = "▶ 日本語版再生"
-                        binding.btnStartBatchDubbing.setBackgroundColor(android.graphics.Color.parseColor("#2E7D32"))
-                        binding.tvTranslatedSubtitle.text = "✨ 日本語音声と動画の準備が完了しました！「▶ 日本語版再生」を押して視聴してください"
-                    } else if (status.errorMessage != null) {
-                        binding.btnStartBatchDubbing.isEnabled = true
-                        binding.btnStartBatchDubbing.text = "再試行"
-                        binding.tvBatchProgressText.text = "エラー: ${status.errorMessage}"
-                    }
+                if (status.errorMessage != null && !status.isCompleted) {
+                    binding.btnStartBatchDubbing.isEnabled = true
+                    binding.btnStartBatchDubbing.text = "再試行"
+                    binding.tvBatchProgressText.text = "エラー: ${status.errorMessage}"
                 }
             }
         }
 
-        lifecycleScope.launch {
+        try {
             val result = pipeline.executeBatchProcessing(
                 videoId = videoId,
                 videoTitle = videoTitle,
                 rawCaptions = if (parsedSegments.isNotEmpty()) parsedSegments else null,
-                audioStreamUrl = effectiveAudioUrl
+                audioStreamUrl = audioStreamUrl
             )
             result.onSuccess { segments ->
                 Log.i(TAG, "[UniVoiceBrowser] バッチ吹き替え生成完了: ${segments.size} セグメント")
                 completedBatchSegments = segments
                 batchPlayer?.loadSegments(segments)
-                runOnUiThread {
-                    binding.btnStartBatchDubbing.isEnabled = true
-                    binding.btnStartBatchDubbing.text = "▶ 日本語版再生"
-                    binding.btnStartBatchDubbing.setBackgroundColor(android.graphics.Color.parseColor("#2E7D32"))
-                    binding.tvTranslatedSubtitle.text = "✨ 日本語音声と動画の準備が完了しました！「▶ 日本語版再生」を押して視聴してください"
-                }
+                binding.btnStartBatchDubbing.isEnabled = true
+                binding.btnStartBatchDubbing.text = "▶ 日本語版再生"
+                binding.btnStartBatchDubbing.setBackgroundColor(android.graphics.Color.parseColor("#2E7D32"))
+                binding.tvTranslatedSubtitle.text = "✨ 日本語音声と動画の準備が完了しました！「▶ 日本語版再生」を押して視聴してください"
             }.onFailure { error ->
+                if (error is kotlinx.coroutines.CancellationException) throw error
                 Log.e(TAG, "[UniVoiceBrowser] バッチ吹き替え生成失敗: ${error.message}", error)
-                runOnUiThread {
-                    binding.btnStartBatchDubbing.isEnabled = true
-                    binding.btnStartBatchDubbing.text = "再試行"
-                    binding.btnStartBatchDubbing.setBackgroundColor(android.graphics.Color.parseColor("#C62828"))
-                    binding.tvBatchProgressText.text = "エラー: ${error.localizedMessage ?: error.message}"
-                }
+                binding.btnStartBatchDubbing.isEnabled = true
+                binding.btnStartBatchDubbing.text = "再試行"
+                binding.btnStartBatchDubbing.setBackgroundColor(android.graphics.Color.parseColor("#C62828"))
+                binding.tvBatchProgressText.text = "エラー: ${error.localizedMessage ?: error.message}"
             }
+        } finally {
+            statusJob.cancel()
         }
     }
 
