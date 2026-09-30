@@ -619,6 +619,8 @@ class UniVoiceBrowserActivity : AppCompatActivity() {
                     if (!url.isNullOrBlank()) lastCapturedTimedTextUrl = url
                     if (!body.isNullOrBlank()) {
                         lastCapturedTimedTextBody = body
+                        // リアルタイム経路: 字幕トラック本文を再生位置に合わせた読み上げの元データにする
+                        pipelineManager.onCaptionTrackCaptured(url, body)
                         if (isBatchExtractionPending) {
                             Log.i(TAG, "[UniVoiceBrowser] 保留中のバッチ抽出をインターセプト字幕で即時解決試行")
                             val segments = if (body.startsWith("{")) {

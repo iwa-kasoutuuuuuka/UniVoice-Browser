@@ -44,6 +44,7 @@ class UniVoicePipelineManager(
         private const val TAG = "UniVoicePipelineMgr"
         private const val SLIDING_WINDOW_SIZE = 50 // 過去と未来のコンテキスト保持サイズ (12GB+ RAM向けに長大化)
         private const val MAX_CONTEXT_PAIRS = 6
+        private val VIDEO_ID_PARAM = Regex("[?&]v=([^&]+)")
 
         /** 字幕開始の少し前から読み上げを始め、TTSの起動遅延を吸収 */
         private const val TIMED_LEAD_MS = 150L
@@ -225,6 +226,9 @@ class UniVoicePipelineManager(
     private val timedCueRegistry = TimedCueRegistry()
     private val seekGeneration = java.util.concurrent.atomic.AtomicInteger(0)
     private val cueSeekGeneration = ConcurrentHashMap<String, Int>()
+    private val trackFeeder = CaptionTrackFeeder()
+    @Volatile
+    private var currentVideoId: String? = null
 
     // 翻訳の重複実行防止（先読みと本処理で同じ原文を二重にAPIへ送らない）
     private val inFlightTranslations = ConcurrentHashMap<String, kotlinx.coroutines.Deferred<Result<String>>>()
@@ -237,6 +241,48 @@ class UniVoicePipelineManager(
         if (playbackClock.update(isPlaying, positionMs)) {
             onSeekDetected(positionMs)
         }
+        feedTrackCues()
+    }
+
+    /**
+     * プレーヤーが取得した字幕トラック本文（傍受した timedtext）を受け取り、再生位置に合わせた読み上げの元データにする
+     * ※ playerResponse の字幕URLを直接取得すると空応答になるため、プレーヤー自身の取得結果を使う
+     */
+    fun onCaptionTrackCaptured(url: String?, body: String) {
+        pipelineScope.launch {
+            val segments = if (body.trimStart().startsWith("{")) {
+                com.univoice.browser.batch.YouTubeTimedTextParser.parseJson3(body)
+            } else {
+                com.univoice.browser.batch.YouTubeTimedTextParser.parseXml(body)
+            }
+            if (segments.isEmpty()) return@launch
+            val trackVideoId = url?.let { VIDEO_ID_PARAM.find(it)?.groupValues?.get(1) } ?: currentVideoId
+            val cues = segments.map { CaptionTrackFeeder.TrackCue(it.startMs, it.endMs, it.originalText) }
+
+            withContext(Dispatchers.Main) {
+                val position = if (playbackClock.hasPosition) playbackClock.positionMs() else 0L
+                val (changed, replacedOtherTrack) = synchronized(trackFeeder) {
+                    val hadTrackForSameVideo = trackFeeder.hasTrack && trackFeeder.videoId == trackVideoId
+                    trackFeeder.setTrack(trackVideoId, "${body.length}:${body.hashCode()}", cues, position) to hadTrackForSameVideo
+                }
+                if (!changed) return@withContext
+                Log.i(TAG, "[UniVoiceBrowser] 字幕トラックを取得: ${cues.size}行 (動画=$trackVideoId)。再生位置に合わせて読み上げます")
+                // 字幕言語の切替等で別トラックになった場合は、旧トラックの読み上げ待ち行を破棄
+                if (replacedOtherTrack) invalidatePendingTimedCues()
+                feedTrackCues()
+            }
+        }
+    }
+
+    /** 再生位置の先読み範囲に入った字幕トラック行を、読み上げ待ちとして投入（メインスレッドから呼ぶ） */
+    private fun feedTrackCues() {
+        if (!playbackClock.hasPosition) return
+        val due = synchronized(trackFeeder) {
+            val videoId = currentVideoId
+            if (!trackFeeder.hasTrack || (videoId != null && trackFeeder.videoId != videoId)) return
+            trackFeeder.takeDue(playbackClock.positionMs())
+        }
+        due.forEach { onSubtitleReceived(UniVoiceSubtitleCue(startTimeMs = it.startMs, endTimeMs = it.endMs, originalText = it.text, isTimed = true)) }
     }
 
     fun onPlaybackRateChanged(rate: Float) {
@@ -244,17 +290,25 @@ class UniVoicePipelineManager(
     }
 
     private fun onSeekDetected(positionMs: Long) {
-        Log.i(TAG, "[UniVoiceBrowser] シークを検知 (${positionMs}ms): 再生位置待ちの字幕トラック行を破棄し、画面字幕での読み上げに切り替えます")
+        Log.i(TAG, "[UniVoiceBrowser] シークを検知 (${positionMs}ms): 再生位置待ちの字幕トラック行を破棄し、新しい再生位置から再投入します")
         invalidatePendingTimedCues()
         stopTtsPlayback()
     }
 
-    /** 再生位置待ちの字幕トラック行（結合待ち・キュー内・待機中）をすべて破棄し、画面字幕での読み上げに委ねる */
+    /**
+     * 再生位置待ちの字幕トラック行（結合待ち・キュー内・待機中）をすべて破棄する
+     * 字幕トラックを保持していれば現在位置から再投入し、無ければ画面字幕での読み上げに委ねる
+     */
     private fun invalidatePendingTimedCues() {
         seekGeneration.incrementAndGet()
         timedCueRegistry.dropAllPending()
         mergeFlushJob?.cancel()
         synchronized(sentenceMerger) { sentenceMerger.reset() }
+        // 破棄した行を字幕トラックから再投入できるよう、払い出し位置を現在の再生位置へ合わせる
+        if (playbackClock.hasPosition) {
+            val position = playbackClock.positionMs()
+            synchronized(trackFeeder) { trackFeeder.seekTo(position) }
+        }
     }
 
     /**
@@ -322,13 +376,16 @@ class UniVoicePipelineManager(
             return
         }
 
-        val now = System.currentTimeMillis()
-        // 同一テキストの連打を抑止（2秒以内）
-        if (clean == lastReceivedText && (now - lastReceivedTime) < 2000L) {
-            return
+        // 同一テキストの連打を抑止（2秒以内）。画面字幕のちらつき対策のため、実タイムスタンプを持つトラック行
+        // （歌詞の繰り返し等、同じ文が続くことがある）には適用しない
+        if (!cue.isTimed) {
+            val now = System.currentTimeMillis()
+            if (clean == lastReceivedText && (now - lastReceivedTime) < 2000L) {
+                return
+            }
+            lastReceivedText = clean
+            lastReceivedTime = now
         }
-        lastReceivedText = clean
-        lastReceivedTime = now
 
         // 実際に処理する行だけを読み上げ予定として登録（破棄した行が画面字幕を抑止し続けないように）
         if (cue.isTimed) timedCueRegistry.registerPending(cue.startTimeMs, cue.endTimeMs)
@@ -643,6 +700,11 @@ class UniVoicePipelineManager(
          cueSeekGeneration.clear()
          timedCueRegistry.clear()
          playbackClock.reset()
+         // 動画切替の通知より先に新動画の字幕トラックを受け取っている場合があるため、同じ動画のトラックは保持する
+         currentVideoId = videoId?.takeIf { it.isNotBlank() }
+         synchronized(trackFeeder) {
+             if (trackFeeder.videoId != currentVideoId) trackFeeder.clear() else trackFeeder.seekTo(0L)
+         }
          slidingWindowQueue.clear()
          slidingWindowSize.set(0)
          while (cueChannel.tryReceive().isSuccess) {

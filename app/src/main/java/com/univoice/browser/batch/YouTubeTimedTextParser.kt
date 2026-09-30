@@ -107,20 +107,12 @@ object YouTubeTimedTextParser {
                     text = "${currentChunk.text} ${item.text}".trim()
                 )
             } else {
-                var text = currentChunk.text
-                if (!isManual && !Regex("[.!?。！？]$").containsMatchIn(text)) {
-                    text += "."
-                }
-                mergedList.add(currentChunk.copy(text = text))
+                mergedList.add(currentChunk.copy(text = withSentenceEnd(currentChunk.text, isManual)))
                 currentChunk = item
             }
         }
         currentChunk?.let {
-            var text = it.text
-            if (!isManual && !Regex("[.!?。！？]$").containsMatchIn(text)) {
-                text += "."
-            }
-            mergedList.add(it.copy(text = text))
+            mergedList.add(it.copy(text = withSentenceEnd(it.text, isManual)))
         }
 
         return mergedList.mapIndexed { idx, item ->
@@ -131,6 +123,17 @@ object YouTubeTimedTextParser {
                 originalText = item.text
             )
         }
+    }
+
+    private val SENTENCE_END = Regex("[.!?。！？]$")
+
+    /**
+     * 自動生成字幕の区切りに文末記号を補う（翻訳・文結合の手がかり）
+     * 日本語字幕（自動翻訳トラック等）には「。」を使い、TTSが半角ピリオドを読んだり不自然な間を置いたりしないようにする
+     */
+    internal fun withSentenceEnd(text: String, isManual: Boolean): String {
+        if (isManual || SENTENCE_END.containsMatchIn(text)) return text
+        return text + if (com.univoice.browser.pipeline.JapaneseText.isSubstantiallyJapanese(text)) "。" else "."
     }
 
     private fun unescapeHtml(raw: String): String {

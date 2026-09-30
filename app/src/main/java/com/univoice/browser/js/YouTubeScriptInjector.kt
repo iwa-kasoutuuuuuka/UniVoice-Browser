@@ -817,36 +817,21 @@ object YouTubeScriptInjector {
                     log("YouTube 字幕トラック (timedtext) 先読みフェッチを開始: " + trackName + " (手動=" + isManual + ")");
                     prefetchRunning = true;
 
+                    // 本文はネイティブへ渡し、プレーヤー通信の傍受と同じ経路で再生位置に合わせて順次読み上げる
+                    // ※ playerResponse の baseUrl は追加トークンが無く空応答になることが多い。その場合は
+                    //   プレーヤー自身の timedtext 取得（CC表示時）の傍受結果が使われる
                     fetch(targetTrack.baseUrl + '&fmt=json3')
-                        .then(function(res) { return res.json(); })
-                        .then(function(data) {
+                        .then(function(res) { return res.text(); })
+                        .then(function(txt) {
                             prefetchRunning = false;
-                            if (!data || !data.events) return;
-                            const video = document.querySelector('video');
-                            const currentMs = video ? Math.floor(video.currentTime * 1000) : 0;
-
-                            let queuedCount = 0;
-                            data.events.forEach(function(ev) {
-                                if (!ev.segs || !ev.tStartMs) return;
-                                const start = ev.tStartMs;
-                                const dur = ev.dDurationMs || 3000;
-                                const end = start + dur;
-
-                                if (end >= currentMs - 2000 && queuedCount < 30) {
-                                    const text = ev.segs.map(function(s) { return s.utf8 || ''; }).join('').trim();
-                                    const sanitized = sanitizeCaption(text);
-                                    if (sanitized && sanitized.length >= 2) {
-                                        queuedCount++;
-                                        // 実タイムスタンプ付きで送信し、ネイティブ側で再生位置に合わせて読み上げる
-                                        if (bridge && bridge.onTimedSubtitleReceived) {
-                                            bridge.onTimedSubtitleReceived(start, end, sanitized);
-                                        } else if (bridge && bridge.onSubtitleReceived) {
-                                            bridge.onSubtitleReceived(start, end, sanitized);
-                                        }
-                                    }
-                                }
-                            });
-                            log("字幕トラックから " + queuedCount + " 件の字幕を事前バッファリングしました");
+                            if (!txt || txt.length < 20) {
+                                log("字幕トラック先読み: 空応答のため、プレーヤーの字幕取得の傍受で代替します");
+                                return;
+                            }
+                            if (bridge && bridge.onTimedTextCaptured) {
+                                bridge.onTimedTextCaptured(targetTrack.baseUrl, txt);
+                            }
+                            log("字幕トラック先読み成功: " + txt.length + " bytes");
                         })
                         .catch(function(err) {
                             prefetchRunning = false;
