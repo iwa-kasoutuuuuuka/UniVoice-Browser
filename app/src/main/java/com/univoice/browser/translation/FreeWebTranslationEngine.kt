@@ -12,9 +12,6 @@ import java.net.URLEncoder
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import java.util.regex.Pattern
-import kotlin.coroutines.resume
-import kotlin.coroutines.resumeWithException
-import kotlinx.coroutines.suspendCancellableCoroutine
 
 /**
  * APIキー不要で誰でも即座に利用可能な高速Web翻訳エンジン
@@ -41,12 +38,6 @@ class FreeWebTranslationEngine : TranslationEngine {
         return true
     }
 
-    private fun isSubstantiallyJapanese(text: String): Boolean {
-        val nonWhitespace = text.filter { !it.isWhitespace() }
-        if (nonWhitespace.isEmpty()) return false
-        val jaCount = nonWhitespace.count { it.code in 0x3040..0x30FF || it.code in 0x4E00..0x9FFF }
-        return (jaCount.toFloat() / nonWhitespace.length) >= 0.35f
-    }
 
     override suspend fun translate(text: String, contextHistory: List<String>): Result<String> {
         return withContext(Dispatchers.IO) {
@@ -56,7 +47,7 @@ class FreeWebTranslationEngine : TranslationEngine {
             }
 
             // すでに本格的な日本語文が含まれている場合はそのまま使用 (35%以上が日本語文字)
-            if (isSubstantiallyJapanese(clean)) {
+            if (com.univoice.browser.pipeline.JapaneseText.isSubstantiallyJapanese(clean)) {
                 return@withContext Result.success(clean)
             }
 
@@ -76,7 +67,7 @@ class FreeWebTranslationEngine : TranslationEngine {
                         .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36")
                         .build()
 
-                    httpClient.executeSuspend(request).use { response ->
+                    httpClient.executeAsync(request).use { response ->
                         if (response.isSuccessful) {
                             val body = response.body?.string() ?: ""
                             if (body.startsWith("[")) {
@@ -91,7 +82,7 @@ class FreeWebTranslationEngine : TranslationEngine {
                                     }
                                     val rawJa = sb.toString().trim()
                                     val unescaped = unescapeHtml(rawJa).trimStart('.', '。', ' ', ',').trim()
-                                    if (unescaped.isNotBlank() && isSubstantiallyJapanese(unescaped)) {
+                                    if (unescaped.isNotBlank() && com.univoice.browser.pipeline.JapaneseText.isSubstantiallyJapanese(unescaped)) {
                                         Log.d(TAG, "[UniVoiceBrowser] Google GTX翻訳成功: [$clean] -> [$unescaped]")
                                         localMemoryCache[clean] = unescaped
                                         return@withTimeoutOrNull unescaped
@@ -114,14 +105,14 @@ class FreeWebTranslationEngine : TranslationEngine {
                         .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
                         .build()
 
-                    httpClient.executeSuspend(request).use { response ->
+                    httpClient.executeAsync(request).use { response ->
                         if (response.isSuccessful) {
                             val body = response.body?.string() ?: ""
                             val json = JSONObject(body)
                             val trans = json.optJSONObject("responseData")?.optString("translatedText")?.trim() ?: ""
                             if (trans.isNotBlank() && !trans.startsWith("MYMEMORY WARNING")) {
                                 val unescaped = unescapeHtml(trans).trimStart('.', '。', ' ', ',').trim()
-                                if (unescaped.isNotBlank() && isSubstantiallyJapanese(unescaped)) {
+                                if (unescaped.isNotBlank() && com.univoice.browser.pipeline.JapaneseText.isSubstantiallyJapanese(unescaped)) {
                                     Log.d(TAG, "[UniVoiceBrowser] MyMemory翻訳成功: [$clean] -> [$unescaped]")
                                     localMemoryCache[clean] = unescaped
                                     return@withTimeoutOrNull unescaped
@@ -143,14 +134,14 @@ class FreeWebTranslationEngine : TranslationEngine {
                         .header("User-Agent", "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36")
                         .build()
 
-                    httpClient.executeSuspend(request).use { response ->
+                    httpClient.executeAsync(request).use { response ->
                         if (response.isSuccessful) {
                             val html = response.body?.string() ?: ""
                             val matcher = RESULT_CONTAINER_PATTERN.matcher(html)
                             if (matcher.find()) {
                                 val rawText = matcher.group(1) ?: ""
                                 val unescaped = unescapeHtml(rawText).trimStart('.', '。', ' ', ',').trim()
-                                if (unescaped.isNotBlank() && isSubstantiallyJapanese(unescaped)) {
+                                if (unescaped.isNotBlank() && com.univoice.browser.pipeline.JapaneseText.isSubstantiallyJapanese(unescaped)) {
                                     Log.d(TAG, "[UniVoiceBrowser] Google Web翻訳成功: [$clean] -> [$unescaped]")
                                     localMemoryCache[clean] = unescaped
                                     return@withTimeoutOrNull unescaped
@@ -214,7 +205,7 @@ class FreeWebTranslationEngine : TranslationEngine {
             }
         }
 
-        val hasJapanese = isSubstantiallyJapanese(replaced)
+        val hasJapanese = com.univoice.browser.pipeline.JapaneseText.isSubstantiallyJapanese(replaced)
         return if (hasJapanese) {
             Result.success(replaced)
         } else {
@@ -235,17 +226,4 @@ class FreeWebTranslationEngine : TranslationEngine {
     override fun release() {
         localMemoryCache.clear()
     }
-}
-
-private suspend fun OkHttpClient.executeSuspend(request: Request): okhttp3.Response = kotlinx.coroutines.suspendCancellableCoroutine { cont ->
-    val call = newCall(request)
-    cont.invokeOnCancellation { call.cancel() }
-    call.enqueue(object : okhttp3.Callback {
-        override fun onFailure(call: okhttp3.Call, e: java.io.IOException) {
-            if (cont.isActive) cont.resumeWithException(e)
-        }
-        override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
-            if (cont.isActive) cont.resume(response)
-        }
-    })
 }

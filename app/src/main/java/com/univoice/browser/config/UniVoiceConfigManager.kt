@@ -80,7 +80,8 @@ class UniVoiceConfigManager private constructor(context: Context) {
         val manualTtsEngine = TtsEngineType.fromId(ttsEngineId)
 
         val apiKey = prefs.getString(KEY_GEMINI_API_KEY, "") ?: ""
-        val modelName = prefs.getString(KEY_GEMINI_MODEL_NAME, "gemini-1.5-flash-latest") ?: "gemini-1.5-flash-latest"
+        // 提供終了済みモデル (gemini-1.5 / 2.0 系) が保存されている場合は現行既定モデルへ移行
+        val modelName = com.univoice.browser.translation.GeminiModels.resolveConfigured(prefs.getString(KEY_GEMINI_MODEL_NAME, null))
         val endpoint = prefs.getString(KEY_CUSTOM_ENDPOINT_URL, "") ?: ""
         val hwAccel = prefs.getBoolean(KEY_HARDWARE_ACCEL, true)
         val audioSuppression = prefs.getBoolean(KEY_AUDIO_SUPPRESSION, true)

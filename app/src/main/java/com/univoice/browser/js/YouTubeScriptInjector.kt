@@ -520,6 +520,34 @@ object YouTubeScriptInjector {
                 }
             };
 
+            // 広告の再生中か（広告ブロック設定に関係なく判定）
+            function isAdPlaying() {
+                const player = document.querySelector('#movie_player, .html5-video-player');
+                return !!(player && (player.classList.contains('ad-showing') || player.classList.contains('ad-interrupting')));
+            }
+
+            // 本編の最終再生位置。広告再生中は広告の currentTime ではなくこの値を「停止中」として通知し、
+            // 本編字幕の読み上げタイミングを広告の再生位置で狂わせない (広告に吹き替えを重ねない)
+            // ※ 広告と本編は同じ video 要素を使い回すため、loadstart ではなく動画IDの変化で本編位置をリセットする
+            let lastMainTimeMs = -1;
+            let lastMainVideoKey = "";
+            function notifyVideoState(video, isPlaying) {
+                if (!(bridge && bridge.onVideoStateChanged)) return;
+                let videoKey = location.pathname;
+                try { videoKey = new URLSearchParams(location.search).get('v') || location.pathname; } catch(_e) {}
+                if (videoKey !== lastMainVideoKey) {
+                    lastMainVideoKey = videoKey;
+                    lastMainTimeMs = -1;
+                }
+                if (isAdPlaying()) {
+                    // 本編位置が未確定（プレロール広告中）の間は通知しない
+                    if (lastMainTimeMs >= 0) bridge.onVideoStateChanged(false, lastMainTimeMs);
+                    return;
+                }
+                lastMainTimeMs = Math.floor(video.currentTime * 1000);
+                bridge.onVideoStateChanged(isPlaying, lastMainTimeMs);
+            }
+
             function attachVideoListeners(video) {
                 if (video.__univoice_attached) return;
                 video.__univoice_attached = true;
@@ -529,30 +557,31 @@ object YouTubeScriptInjector {
                 video.addEventListener('play', function() {
                     enforceMute(video);
                     tryAutoTranslateToJapanese();
-                    if (bridge && bridge.onVideoStateChanged) {
-                        const currentMs = Math.floor(video.currentTime * 1000);
-                        bridge.onVideoStateChanged(true, currentMs);
-                    }
+                    notifyVideoState(video, true);
                 }, false);
 
                 video.addEventListener('pause', function() {
                     prefetchCaptionTrack();
-                    if (bridge && bridge.onVideoStateChanged) {
-                        const currentMs = Math.floor(video.currentTime * 1000);
-                        bridge.onVideoStateChanged(false, currentMs);
-                    }
+                    notifyVideoState(video, false);
                 }, false);
 
                 video.addEventListener('volumechange', function() {
                     enforceMute(video);
                 }, false);
 
+                // 再生速度をネイティブへ通知 (再生位置の補間・読み上げタイミング計算に使用)
+                function notifyPlaybackRate() {
+                    try {
+                        if (bridge && bridge.onPlaybackRateChanged) {
+                            bridge.onPlaybackRateChanged(video.playbackRate || 1);
+                        }
+                    } catch(_e) {}
+                }
+                video.addEventListener('ratechange', notifyPlaybackRate, false);
+                video.addEventListener('playing', notifyPlaybackRate, false);
+
                 video.addEventListener('timeupdate', function() {
-                    if (bridge && bridge.onVideoStateChanged) {
-                        const isPlaying = !video.paused && !video.ended && video.readyState > 2;
-                        const currentMs = Math.floor(video.currentTime * 1000);
-                        bridge.onVideoStateChanged(isPlaying, currentMs);
-                    }
+                    notifyVideoState(video, !video.paused && !video.ended && video.readyState > 2);
                 }, false);
 
                 video.addEventListener('emptied', function() {
@@ -808,7 +837,10 @@ object YouTubeScriptInjector {
                                     const sanitized = sanitizeCaption(text);
                                     if (sanitized && sanitized.length >= 2) {
                                         queuedCount++;
-                                        if (bridge && bridge.onSubtitleReceived) {
+                                        // 実タイムスタンプ付きで送信し、ネイティブ側で再生位置に合わせて読み上げる
+                                        if (bridge && bridge.onTimedSubtitleReceived) {
+                                            bridge.onTimedSubtitleReceived(start, end, sanitized);
+                                        } else if (bridge && bridge.onSubtitleReceived) {
                                             bridge.onSubtitleReceived(start, end, sanitized);
                                         }
                                     }
@@ -1018,7 +1050,7 @@ object YouTubeScriptInjector {
                             }
                         }
 
-                        // 本物の音声ストリームURL (M4A/WebM) を抽出
+                        // 本物の音声ストリームURL (M4A/WebM/MP4) を抽出
                         let actualAudioUrl = "";
                         if (streamingData) {
                             if (streamingData.adaptiveFormats) {
@@ -1032,9 +1064,24 @@ object YouTubeScriptInjector {
                                 if (f && f.url) actualAudioUrl = f.url;
                             }
                         }
+                        if (!actualAudioUrl) {
+                            const videoEl = document.querySelector('video');
+                            if (videoEl && videoEl.src && videoEl.src.indexOf('http') === 0) {
+                                actualAudioUrl = videoEl.src;
+                            } else if (videoEl && videoEl.currentSrc && videoEl.currentSrc.indexOf('http') === 0) {
+                                actualAudioUrl = videoEl.currentSrc;
+                            }
+                        }
 
                         if (!tracks || tracks.length === 0) {
                             log("バッチ字幕抽出: 利用可能な captionTracks がありません (音声URL=" + (actualAudioUrl ? "取得" : "未取得") + ")");
+                            try {
+                                const v = document.querySelector('video');
+                                if (v) {
+                                    v.muted = true;
+                                    if (v.paused) v.play();
+                                }
+                            } catch(_e) {}
                             notifyResult([], "", actualAudioUrl);
                             return;
                         }

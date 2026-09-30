@@ -11,7 +11,7 @@ object DynamicTimeStretcher {
     private const val TAG = "DynamicTimeStretcher"
 
     // 日本語の標準的な発話速度: 1秒あたり約7モーラ (文字)
-    private const val MORAE_PER_SECOND_STANDARD = 7.0f
+    private const val MORAE_PER_SECOND_STANDARD = JapaneseSpeechTiming.MORAE_PER_SECOND
 
     // 許容される速度調整の最小値と最大値
     private const val MIN_SPEED = 0.5f
@@ -37,18 +37,18 @@ object DynamicTimeStretcher {
             return safeBaseSpeed
         }
 
-        // 記号や空白を除外した純粋な文字数を概算モーラ数として推定
-        val cleanLength = translatedJapanese.replace(Regex("[\\s\\p{Punct}、。！？・〜]"), "").length
-        if (cleanLength == 0) return safeBaseSpeed
+        // 漢字・拗音・長音を考慮したモーラ数で発話時間を推定（文字数だと漢字の多い文で過小評価になる）
+        val morae = JapaneseSpeechTiming.estimateMorae(translatedJapanese)
+        if (morae <= 0f) return safeBaseSpeed
 
         // ユーザー指定の基準速度で発話した場合の推定所要秒数
-        val estimatedDurationSec = cleanLength / (MORAE_PER_SECOND_STANDARD * safeBaseSpeed)
+        val estimatedDurationSec = morae / (MORAE_PER_SECOND_STANDARD * safeBaseSpeed)
         val availableDurationSec = (availableDurationMs / 1000.0f).coerceAtLeast(0.5f)
 
         // 字幕の表示時間内に発話が収まらない場合のみ、次の字幕に追従できるよう加速補正
         // 余裕がある場合はユーザー指定の基準速度（safeBaseSpeed）をそのまま100%維持
         val speedNeeded = if (estimatedDurationSec > availableDurationSec) {
-            cleanLength / (MORAE_PER_SECOND_STANDARD * availableDurationSec)
+            morae / (MORAE_PER_SECOND_STANDARD * availableDurationSec)
         } else {
             safeBaseSpeed
         }
@@ -58,7 +58,7 @@ object DynamicTimeStretcher {
 
         Log.d(
             TAG,
-            "[UniVoiceBrowser] 発話速度計算: 設定基準=${safeBaseSpeed}倍, 文字数=$cleanLength, 許容時間=${availableDurationSec}s, 所要時間=${String.format("%.2f", estimatedDurationSec)}s -> 適用速度=${String.format("%.2f", targetSpeed)}倍"
+            "[UniVoiceBrowser] 発話速度計算: 設定基準=${safeBaseSpeed}倍, 推定モーラ数=${String.format("%.1f", morae)}, 許容時間=${availableDurationSec}s, 所要時間=${String.format("%.2f", estimatedDurationSec)}s -> 適用速度=${String.format("%.2f", targetSpeed)}倍"
         )
 
         return targetSpeed

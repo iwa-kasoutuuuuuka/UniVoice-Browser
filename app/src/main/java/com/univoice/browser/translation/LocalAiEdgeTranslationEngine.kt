@@ -61,39 +61,28 @@ class LocalAiEdgeTranslationEngine(
     override suspend fun translate(text: String, contextHistory: List<String>): Result<String> {
         return withContext(Dispatchers.Default) {
             try {
-                if (isModelLoaded && modelFile != null) {
-                    // GPU/NNAPI アクセラレーションによるローカル推論
-                    val prompt = "Translate English subtitle into natural Japanese spoken text:\n$text\nJapanese:"
-                    val localResult = executeLocalLlmInference(prompt)
-                    Log.d(TAG, "[UniVoiceBrowser] ローカルLLM推論完了: $localResult")
-                    Result.success(localResult)
+                // 注: オンデバイスLLM推論ランタイム (MediaPipe LLM Inference 等) は未統合。
+                // モデルファイルが配置されていても偽の訳文は生成せず、実翻訳エンジンで処理する (規約①)
+                if (isModelLoaded) {
+                    Log.w(TAG, "[UniVoiceBrowser] ローカルLLM推論は未実装のため、Web翻訳エンジンで翻訳します")
+                }
+                val webResult = webTranslationEngine.translate(text, contextHistory)
+                if (webResult.isSuccess && !webResult.getOrNull().isNullOrBlank()) {
+                    return@withContext webResult
+                }
+                val fallbackTranslation = heuristicOfflineTranslate(text)
+                if (fallbackTranslation.isNotBlank()) {
+                    Log.d(TAG, "[UniVoiceBrowser] オフライン定型句翻訳: $fallbackTranslation")
+                    Result.success(fallbackTranslation)
                 } else {
-                    // 高精度Web翻訳エンジンで日本語化
-                    val webResult = webTranslationEngine.translate(text, contextHistory)
-                    if (webResult.isSuccess && !webResult.getOrNull().isNullOrBlank()) {
-                        return@withContext webResult
-                    }
-                    val fallbackTranslation = heuristicOfflineTranslate(text)
-                    if (fallbackTranslation.any { it.code in 0x3040..0x30FF || it.code in 0x4E00..0x9FFF }) {
-                        Log.d(TAG, "[UniVoiceBrowser] ローカルオフライン辞書翻訳: $fallbackTranslation")
-                        Result.success(fallbackTranslation)
-                    } else {
-                        Result.failure(IllegalStateException("翻訳不可"))
-                    }
+                    Result.failure(IllegalStateException("オフラインのため翻訳できませんでした（定型句以外はネットワーク接続が必要です）"))
                 }
             } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
                 Log.e(TAG, "[UniVoiceBrowser] ローカル翻訳エラー: ${e.message}", e)
                 Result.failure(e)
             }
         }
-    }
-
-    /**
-     * Snapdragon 8 Gen 2 最適化ローカルLLM推論ルーチン
-     */
-    private fun executeLocalLlmInference(prompt: String): String {
-        // MediaPipe / LiteRT / Google AI Edge SDK 推論ラッパー
-        return "（ローカルAI翻訳）" + prompt.substringAfter("Japanese:").trim()
     }
 
     /**
@@ -123,21 +112,9 @@ class LocalAiEdgeTranslationEngine(
             "what's up guys" to "皆さんこんにちは"
         )
 
-        var replaced = text
-        for ((en, ja) in commonPhrases) {
-            if (lower.contains(en)) {
-                replaced = replaced.replace(Regex("(?i)$en"), ja)
-            }
-        }
-
-        val nonWhitespace = replaced.filter { !it.isWhitespace() }
-        val jaCount = nonWhitespace.count { it.code in 0x3040..0x30FF || it.code in 0x4E00..0x9FFF }
-        val isSubstantialJa = nonWhitespace.isNotEmpty() && (jaCount.toFloat() / nonWhitespace.length) >= 0.35f
-        if (isSubstantialJa) {
-            return replaced
-        }
-
-        return ""
+        // 部分置換は「こんにちは guys」のような英日混在文をTTSに読ませてしまうため、字幕全体が定型句に一致する場合のみ採用
+        val normalized = lower.trim { it.isWhitespace() || it in ".,!?…" }
+        return commonPhrases[normalized].orEmpty()
     }
 
     override fun release() {

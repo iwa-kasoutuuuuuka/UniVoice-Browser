@@ -16,10 +16,12 @@ import com.univoice.browser.tts.CloudEdgeTtsEngine
 import com.univoice.browser.tts.LocalOnnxTtsEngine
 import com.univoice.browser.tts.TtsEngine
 import kotlinx.coroutines.CoroutineExceptionHandler
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -41,6 +43,16 @@ class UniVoicePipelineManager(
     companion object {
         private const val TAG = "UniVoicePipelineMgr"
         private const val SLIDING_WINDOW_SIZE = 50 // 過去と未来のコンテキスト保持サイズ (12GB+ RAM向けに長大化)
+        private const val MAX_CONTEXT_PAIRS = 6
+
+        /** 字幕開始の少し前から読み上げを始め、TTSの起動遅延を吸収 */
+        private const val TIMED_LEAD_MS = 150L
+        /** 終了時刻をこれ以上過ぎた字幕トラック行は読み上げずに破棄 */
+        private const val TIMED_STALE_TOLERANCE_MS = 1000L
+        /** 再生位置よりこれ以上先の行は（シーク直後など）待たずに破棄し、後続を塞がない */
+        private const val TIMED_MAX_AHEAD_MS = 180_000L
+        private const val TIMED_MAX_POLL_MS = 250L
+        private const val TIMED_IDLE_POLL_MS = 200L
     }
 
     private val exceptionHandler = CoroutineExceptionHandler { _, throwable ->
@@ -205,12 +217,110 @@ class UniVoicePipelineManager(
     private var lastReceivedText = ""
     private var lastReceivedTime = 0L
 
+    private val sentenceMerger = CaptionSentenceMerger()
+    private var mergeFlushJob: Job? = null
+
+    // 字幕トラック由来の字幕を動画の再生位置に合わせて読み上げるための状態
+    private val playbackClock = PlaybackClock()
+    private val timedCueRegistry = TimedCueRegistry()
+    private val seekGeneration = java.util.concurrent.atomic.AtomicInteger(0)
+    private val cueSeekGeneration = ConcurrentHashMap<String, Int>()
+
+    // 翻訳の重複実行防止（先読みと本処理で同じ原文を二重にAPIへ送らない）
+    private val inFlightTranslations = ConcurrentHashMap<String, kotlinx.coroutines.Deferred<Result<String>>>()
+    private val prefetchRequested = java.util.concurrent.atomic.AtomicBoolean(false)
+    @Volatile
+    private var prefetchJob: Job? = null
+
+    /** 動画の再生状態・再生位置の通知（JS timeupdate / play / pause） */
+    fun onPlaybackPositionChanged(isPlaying: Boolean, positionMs: Long) {
+        if (playbackClock.update(isPlaying, positionMs)) {
+            onSeekDetected(positionMs)
+        }
+    }
+
+    fun onPlaybackRateChanged(rate: Float) {
+        playbackClock.setRate(rate)
+    }
+
+    private fun onSeekDetected(positionMs: Long) {
+        Log.i(TAG, "[UniVoiceBrowser] シークを検知 (${positionMs}ms): 再生位置待ちの字幕トラック行を破棄し、画面字幕での読み上げに切り替えます")
+        invalidatePendingTimedCues()
+        stopTtsPlayback()
+    }
+
+    /** 再生位置待ちの字幕トラック行（結合待ち・キュー内・待機中）をすべて破棄し、画面字幕での読み上げに委ねる */
+    private fun invalidatePendingTimedCues() {
+        seekGeneration.incrementAndGet()
+        timedCueRegistry.dropAllPending()
+        mergeFlushJob?.cancel()
+        synchronized(sentenceMerger) { sentenceMerger.reset() }
+    }
+
+    /**
+     * 字幕トラック由来の字幕について、再生位置が開始時刻に達するまで待機
+     * 再生位置が未取得の間（自動再生オフ等）も待機し、一括受信した行を即時に連続読み上げしない
+     * @return 読み上げるべき場合 true、シーク・経過・大きく先の字幕のため破棄すべき場合 false
+     */
+    private suspend fun awaitTimedCueDue(cue: UniVoiceSubtitleCue, generation: Int): Boolean {
+        while (true) {
+            if (generation != seekGeneration.get()) return false
+            if (!playbackClock.hasPosition) {
+                kotlinx.coroutines.delay(TIMED_IDLE_POLL_MS)
+                continue
+            }
+            val pos = playbackClock.positionMs()
+            if (pos > cue.endTimeMs + TIMED_STALE_TOLERANCE_MS) return false
+            if (pos < cue.startTimeMs - TIMED_MAX_AHEAD_MS) return false
+            val playing = playbackClock.isPlaying && isVideoPlaying
+            val remainingMs = cue.startTimeMs - TIMED_LEAD_MS - pos
+            if (playing && remainingMs <= 0) return true
+            // 再生中は開始時刻までの実時間だけ待つ（シーク検知のため上限あり）、停止中は低頻度で確認
+            val waitMs = if (playing) (remainingMs / playbackClock.playbackRate).toLong().coerceIn(20L, TIMED_MAX_POLL_MS) else TIMED_IDLE_POLL_MS
+            kotlinx.coroutines.delay(waitMs)
+        }
+    }
+
+    private fun isTimedCueStale(cue: UniVoiceSubtitleCue, generation: Int): Boolean =
+        generation != seekGeneration.get() ||
+            (playbackClock.hasPosition && playbackClock.positionMs() > cue.endTimeMs + TIMED_STALE_TOLERANCE_MS)
+
+    // 直前に確定した (原文, 訳文)。文体・訳語の一貫性のため翻訳プロンプトへ渡す
+    private val recentPairs = ArrayDeque<Pair<String, String>>()
+
+    @Volatile
+    private var videoTitle: String? = null
+
+    /** 動画タイトルを更新（翻訳時の話題・固有名詞の手がかり） */
+    fun updateVideoTitle(title: String?) {
+        videoTitle = title?.removeSuffix(" - YouTube")?.trim()?.takeIf { it.isNotBlank() && it != "YouTube" }
+    }
+
+    private fun currentTranslationContext(): com.univoice.browser.translation.TranslationContext =
+        com.univoice.browser.translation.TranslationContext(
+            previousPairs = synchronized(recentPairs) { recentPairs.toList() },
+            videoTitle = videoTitle
+        )
+
+    private fun rememberPair(source: String, translated: String) {
+        synchronized(recentPairs) {
+            recentPairs.addLast(source to translated)
+            while (recentPairs.size > MAX_CONTEXT_PAIRS) recentPairs.removeFirst()
+        }
+    }
+
     /**
      * JSInterfaceから字幕を受信したときのエントリポイント
      */
     fun onSubtitleReceived(cue: UniVoiceSubtitleCue) {
         val clean = cue.cleanText
         if (clean.isBlank() || clean.length < 2) return
+
+        if (!cue.isTimed && timedCueRegistry.isCoveredByTrack(cue.startTimeMs)) {
+            // 字幕トラックから先読み済みの区間は、画面字幕(DOM)から拾った同じ行を二重に読み上げない
+            Log.d(TAG, "[UniVoiceBrowser] 字幕トラックで処理済み・予定の区間のため画面字幕を抑止: $clean")
+            return
+        }
 
         val now = System.currentTimeMillis()
         // 同一テキストの連打を抑止（2秒以内）
@@ -220,8 +330,27 @@ class UniVoicePipelineManager(
         lastReceivedText = clean
         lastReceivedTime = now
 
+        // 実際に処理する行だけを読み上げ予定として登録（破棄した行が画面字幕を抑止し続けないように）
+        if (cue.isTimed) timedCueRegistry.registerPending(cue.startTimeMs, cue.endTimeMs)
+
         _captionGuidanceMessage.value = null // 字幕受信成功によりガイダンスを解除
         _currentStatus.value = PipelineStatus.INTERCEPTING
+
+        // 文の途中で区切られた断片を文単位に結合してから翻訳へ回す（断片翻訳による誤訳を防止）
+        val (ready, flushDelayMs) = synchronized(sentenceMerger) {
+            sentenceMerger.add(cue) to sentenceMerger.suggestedFlushDelayMs()
+        }
+        ready.forEach { enqueueCue(it) }
+
+        mergeFlushJob?.cancel()
+        mergeFlushJob = pipelineScope.launch {
+            kotlinx.coroutines.delay(flushDelayMs)
+            val pending = synchronized(sentenceMerger) { sentenceMerger.flush() }
+            pending?.let { enqueueCue(it) }
+        }
+    }
+
+    private fun enqueueCue(cue: UniVoiceSubtitleCue) {
         // スライディングウィンドウに追加
         slidingWindowQueue.add(cue)
         slidingWindowSize.incrementAndGet()
@@ -230,6 +359,9 @@ class UniVoicePipelineManager(
                 slidingWindowSize.decrementAndGet()
             }
         }
+
+        // シーク前に受信した字幕を識別できるよう、投入時点のシーク世代を記録
+        if (cue.isTimed) cueSeekGeneration[cue.id] = seekGeneration.get()
 
         // チャンネルへ投入
         cueChannel.trySend(cue)
@@ -259,75 +391,67 @@ class UniVoicePipelineManager(
         _errorMessage.value = null
     }
 
-    private fun isSubstantiallyJapanese(text: String): Boolean {
-        val nonWhitespace = text.filter { !it.isWhitespace() }
-        if (nonWhitespace.isEmpty()) return false
-        val jaCount = nonWhitespace.count { it.code in 0x3040..0x30FF || it.code in 0x4E00..0x9FFF }
-        return (jaCount.toFloat() / nonWhitespace.length) >= 0.35f
-    }
 
     /**
      * 単一字幕キューのパイプライン実行 (先読みキャッシュ確認 -> 翻訳 -> 音声合成再生)
+     * 字幕トラック行が読み上げに至らなかった場合は、その区間を破棄扱いにして画面字幕での読み上げに委ねる
      */
     private suspend fun processSubtitleCue(cue: UniVoiceSubtitleCue) {
+        val generation = cueSeekGeneration.remove(cue.id) ?: seekGeneration.get()
+        var spoken = false
+        try {
+            spoken = translateAndSpeak(cue, generation)
+        } finally {
+            if (cue.isTimed && !spoken) timedCueRegistry.markDropped(cue.startTimeMs, cue.endTimeMs)
+            _currentStatus.value = PipelineStatus.IDLE
+        }
+    }
+
+    /** @return 読み上げを行った場合 true */
+    private suspend fun translateAndSpeak(cue: UniVoiceSubtitleCue, generation: Int): Boolean {
         val cleanText = cue.cleanText.trim().trimStart('.', ',', ':', ';', '!', '?', '-', ' ').trim()
-        if (cleanText.isBlank()) return
+        if (cleanText.isBlank()) return false
+        if (cue.isTimed && isTimedCueStale(cue, generation)) {
+            // 再生位置を過ぎた行・シーク前の行は翻訳APIを呼ばずに破棄
+            Log.d(TAG, "[UniVoiceBrowser] 再生位置を過ぎた字幕トラック行を破棄: $cleanText")
+            return false
+        }
 
         val settings = configManager.currentSettings
 
         // 1. すでに実質的な日本語字幕の場合は翻訳処理をバイパスして即座に利用 (35%以上が日本語)
-        val isAlreadyJapanese = isSubstantiallyJapanese(cleanText)
-        var translated: String = if (isAlreadyJapanese) {
-            cleanText
-        } else {
-            translationCache[cleanText] ?: ""
-        }
-
+        val isAlreadyJapanese = JapaneseText.isSubstantiallyJapanese(cleanText)
+        val cached = if (isAlreadyJapanese) cleanText else translationCache[cleanText]
+        if (cached != null) Log.d(TAG, "[UniVoiceBrowser] キャッシュまたは直接日本語ヒット: [$cleanText] -> [$cached]")
+        val translated = cached ?: translateWithFallback(cleanText)
         if (translated.isBlank()) {
-            _currentStatus.value = PipelineStatus.TRANSLATING
-            val history = slidingWindowQueue.map { it.cleanText }
-
-            val transEngine = translationEngine ?: freeWebTranslation
-            val result = transEngine.translate(cleanText, history)
-
-            translated = result.getOrElse { error ->
-                Log.w(TAG, "[UniVoiceBrowser] 主系翻訳警告: ${error.message}。Web無料翻訳を実行")
-                val webRes = freeWebTranslation.translate(cleanText, history)
-                webRes.getOrElse {
-                    fallbackLocalTranslation.translate(cleanText, history).getOrDefault("")
-                }
-            }
-
-            if (translated.isNotBlank() && isSubstantiallyJapanese(translated)) {
-                putTranslationCache(cleanText, translated)
-            } else if (!isSubstantiallyJapanese(translated)) {
-                Log.w(TAG, "[UniVoiceBrowser] 翻訳結果が日本語ではないため破棄: [$cleanText] -> [$translated]")
-                translated = ""
-            }
-        } else {
-            Log.d(TAG, "[UniVoiceBrowser] キャッシュまたは直接日本語ヒット: [$cleanText] -> [$translated]")
-        }
-
-        if (translated.isBlank() || !isSubstantiallyJapanese(translated)) {
             Log.w(TAG, "[UniVoiceBrowser] 日本語訳が取得できなかった（または非日本語）ため音声合成スキップ: $cleanText")
-            _currentStatus.value = PipelineStatus.IDLE
-            return
+            return false
         }
 
         cue.translatedText = translated
+        if (!isAlreadyJapanese) rememberPair(cleanText, translated)
         _currentCue.value = cue
         _prefetchedCountFlow.value = translationCache.size
 
         // 日英対訳スクリプト履歴へ自動記録 (語学学習用)
         transcriptRepo.addCue(cue)
 
-        // 経過時間が長すぎる場合（リアルタイム動画再生中に大きく遅延した場合のみスキップ）
-        // 一時停止中の場合は動画停止中なのでスキップ判定を行わない
-        val cueAgeMs = System.currentTimeMillis() - cue.createdAt
-        if (isVideoPlaying && cueAgeMs > 15000L) {
-            Log.d(TAG, "[UniVoiceBrowser] 時間経過したキューのため音声合成をスキップ (${cueAgeMs}ms経過): $cleanText")
+        if (cue.isTimed) {
+            // 再生位置が字幕の開始時刻に達するまで待機（一時停止中も待機を継続し、再開後に読み上げる）
             _currentStatus.value = PipelineStatus.IDLE
-            return
+            if (!awaitTimedCueDue(cue, generation)) {
+                Log.d(TAG, "[UniVoiceBrowser] シーク・再生位置の経過により字幕トラック行の読み上げを破棄: $cleanText")
+                return false
+            }
+        } else {
+            // 経過時間が長すぎる場合（リアルタイム動画再生中に大きく遅延した場合のみスキップ）
+            // 一時停止中の場合は動画停止中なのでスキップ判定を行わない
+            val cueAgeMs = System.currentTimeMillis() - cue.createdAt
+            if (isVideoPlaying && cueAgeMs > 15000L) {
+                Log.d(TAG, "[UniVoiceBrowser] 時間経過したキューのため音声合成をスキップ (${cueAgeMs}ms経過): $cleanText")
+                return false
+            }
         }
 
         // 端末のメディア音量確認（消音時はユーザーへガイダンス）
@@ -343,20 +467,28 @@ class UniVoicePipelineManager(
         if (!isVideoPlaying) {
             Log.d(TAG, "[UniVoiceBrowser] 動画一時停止中のため発話は待機し、翻訳キャッシュのみ完了: $cleanText -> $translated")
             prefetchUpcomingCues()
-            _currentStatus.value = PipelineStatus.IDLE
-            return
+            return false
         }
 
         // 2. 音声合成および再生 (動的リップシンク・タイムストレッチ適用)
         _currentStatus.value = PipelineStatus.SYNTHESIZING
         val tts = ttsEngine ?: cloudEdgeTts
 
+        // 読み上げに使える実時間: 字幕トラック行は「終了時刻までの残り」を動画の再生速度で実時間へ換算
+        val availableDurationMs = if (cue.isTimed) {
+            val remainingVideoMs = (cue.endTimeMs - playbackClock.positionMs()).coerceIn(500L, cue.durationMs)
+            (remainingVideoMs / playbackClock.playbackRate).toLong()
+        } else {
+            cue.durationMs
+        }
+
         // 字幕表示時間に合わせて発話速度をリアルタイムに自動微調整
         val dynamicSpeed = DynamicTimeStretcher.calculateOptimalSpeed(
             translatedJapanese = translated,
-            availableDurationMs = cue.durationMs,
+            availableDurationMs = availableDurationMs,
             baseSpeed = settings.speechSpeed
         )
+        if (cue.isTimed) timedCueRegistry.markSpoken(cue.startTimeMs, cue.endTimeMs)
 
         _currentStatus.value = PipelineStatus.PLAYING
         val ttsResult = tts.synthesizeAndPlay(
@@ -383,37 +515,80 @@ class UniVoicePipelineManager(
 
         // 3. 次の字幕の長大先読み (Prefetch up to 20 cues ahead)
         prefetchUpcomingCues()
+        return true
+    }
 
-        _currentStatus.value = PipelineStatus.IDLE
+    /** 主系エンジンで翻訳し、失敗時は Web無料翻訳 → ローカルの順にフォールバック。日本語訳が得られなければ空文字 */
+    private suspend fun translateWithFallback(cleanText: String): String {
+        _currentStatus.value = PipelineStatus.TRANSLATING
+        val translated = translatePrimaryShared(cleanText).getOrElse { error ->
+            Log.w(TAG, "[UniVoiceBrowser] 主系翻訳警告: ${error.message}。Web無料翻訳を実行")
+            val history = slidingWindowQueue.map { it.cleanText }
+            freeWebTranslation.translate(cleanText, history).getOrElse {
+                fallbackLocalTranslation.translate(cleanText, history).getOrDefault("")
+            }
+        }
+        if (translated.isNotBlank() && JapaneseText.isSubstantiallyJapanese(translated)) {
+            putTranslationCache(cleanText, translated)
+            return translated
+        }
+        Log.w(TAG, "[UniVoiceBrowser] 翻訳結果が日本語ではないため破棄: [$cleanText] -> [$translated]")
+        return ""
+    }
+
+    /**
+     * 主系エンジンでの翻訳。同じ原文の翻訳が進行中ならその結果を共有し、
+     * 先読みと本処理が同じ行を重複してAPIへ送らないようにする
+     */
+    private suspend fun translatePrimaryShared(cleanText: String): Result<String> {
+        val deferred = inFlightTranslations.computeIfAbsent(cleanText) {
+            pipelineScope.async(Dispatchers.IO, start = CoroutineStart.LAZY) {
+                try {
+                    (translationEngine ?: freeWebTranslation).translate(cleanText, currentTranslationContext())
+                } finally {
+                    inFlightTranslations.remove(cleanText)
+                }
+            }
+        }
+        deferred.start()
+        return deferred.await()
     }
 
     /**
      * 未翻訳の先読み候補を非同期に事前翻訳（最大20件まで先読み実行）
+     * 多重起動せず、実行中に要求が来た場合は現在のパス完了後にもう一度走査する
      */
     fun prefetchUpcomingCues() {
-        val pendingList = slidingWindowQueue.filter { it.translatedText == null && !translationCache.containsKey(it.cleanText) }
-        if (pendingList.isEmpty()) return
-
-        pipelineScope.launch(Dispatchers.IO) {
-            for (pending in pendingList.take(20)) {
-                val clean = pending.cleanText
-                if (clean.isNotBlank() && !translationCache.containsKey(clean)) {
-                    val isJp = isSubstantiallyJapanese(clean)
-                    if (isJp) {
-                        putTranslationCache(clean, clean)
-                        pending.translatedText = clean
-                        _prefetchedCountFlow.value = translationCache.size
-                        continue
-                    }
-                    val history = slidingWindowQueue.map { it.cleanText }
-                    val trans = (translationEngine ?: freeWebTranslation).translate(clean, history).getOrNull()
-                    if (!trans.isNullOrBlank() && isSubstantiallyJapanese(trans)) {
-                        putTranslationCache(clean, trans)
-                        pending.translatedText = trans
-                        _prefetchedCountFlow.value = translationCache.size
-                        Log.d(TAG, "[UniVoiceBrowser] 先読みバッファ完了 (${translationCache.size}件保持): [$clean] -> [$trans]")
-                    }
+        prefetchRequested.set(true)
+        synchronized(prefetchRequested) {
+            if (prefetchJob?.isActive == true) return
+            prefetchJob = pipelineScope.launch(Dispatchers.IO) {
+                while (prefetchRequested.getAndSet(false)) {
+                    runPrefetchPass()
                 }
+            }
+        }
+    }
+
+    private suspend fun runPrefetchPass() {
+        val pendingList = slidingWindowQueue
+            .filter { it.translatedText == null && !translationCache.containsKey(it.cleanText) }
+            .take(20)
+        for (pending in pendingList) {
+            val clean = pending.cleanText
+            if (clean.isBlank() || translationCache.containsKey(clean)) continue
+            if (JapaneseText.isSubstantiallyJapanese(clean)) {
+                putTranslationCache(clean, clean)
+                pending.translatedText = clean
+                _prefetchedCountFlow.value = translationCache.size
+                continue
+            }
+            val trans = translatePrimaryShared(clean).getOrNull()
+            if (!trans.isNullOrBlank() && JapaneseText.isSubstantiallyJapanese(trans)) {
+                putTranslationCache(clean, trans)
+                pending.translatedText = trans
+                _prefetchedCountFlow.value = translationCache.size
+                Log.d(TAG, "[UniVoiceBrowser] 先読みバッファ完了 (${translationCache.size}件保持): [$clean] -> [$trans]")
             }
         }
     }
@@ -431,6 +606,13 @@ class UniVoicePipelineManager(
      */
     fun pauseAudioOutputOnly() {
         isVideoPlaying = false
+        stopTtsPlayback()
+        // 一時停止中にも先読み翻訳を積極的にトリガー
+        prefetchUpcomingCues()
+    }
+
+    /** 再生中のTTS音声のみを停止（キュー・翻訳キャッシュ・再生状態フラグは維持） */
+    private fun stopTtsPlayback() {
         if (ttsEngine !== fallbackSystemTts && ttsEngine !== cloudEdgeTts) {
             ttsEngine?.stop()
         }
@@ -439,8 +621,6 @@ class UniVoicePipelineManager(
         if (_currentStatus.value == PipelineStatus.PLAYING || _currentStatus.value == PipelineStatus.SYNTHESIZING) {
             _currentStatus.value = PipelineStatus.IDLE
         }
-        // 一時停止中にも先読み翻訳を積極的にトリガー
-        prefetchUpcomingCues()
     }
 
     /**
@@ -457,6 +637,12 @@ class UniVoicePipelineManager(
          Log.i(TAG, "[UniVoiceBrowser] 新しい動画再生に合わせてパイプライン状態をリセット: $videoId")
          lastReceivedText = ""
          lastReceivedTime = 0L
+         synchronized(recentPairs) { recentPairs.clear() }
+         // 前動画の再生位置待ち字幕を破棄（世代を進めると待機中の行も即座に破棄される）
+         invalidatePendingTimedCues()
+         cueSeekGeneration.clear()
+         timedCueRegistry.clear()
+         playbackClock.reset()
          slidingWindowQueue.clear()
          slidingWindowSize.set(0)
          while (cueChannel.tryReceive().isSuccess) {
@@ -474,6 +660,8 @@ class UniVoicePipelineManager(
      */
     fun stopAudio() {
         isVideoPlaying = false
+        // 破棄するキュー内の字幕トラック行が「読み上げ待ち」のまま画面字幕を抑止し続けないよう、まとめて破棄扱いにする
+        invalidatePendingTimedCues()
         while (cueChannel.tryReceive().isSuccess) {}
         if (ttsEngine !== fallbackSystemTts && ttsEngine !== cloudEdgeTts) {
             ttsEngine?.stop()
@@ -488,6 +676,7 @@ class UniVoicePipelineManager(
      */
     fun release() {
         workerJob?.cancel()
+        mergeFlushJob?.cancel()
         cueChannel.close()
         translationEngine?.release()
         if (ttsEngine !== fallbackSystemTts && ttsEngine !== cloudEdgeTts) {

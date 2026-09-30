@@ -8,6 +8,7 @@ package com.univoice.browser.model
  * @param originalText 取得元の字幕テキスト (主に英語)
  * @param translatedText 翻訳後の日本語テキスト
  * @param isPrefetched 先読みバッファによって事前翻訳済みかどうか
+ * @param isTimed 字幕トラック由来で、動画上の実タイムスタンプを持つか（true の場合は再生位置に合わせて読み上げる）
  */
 data class UniVoiceSubtitleCue(
     val id: String = java.util.UUID.randomUUID().toString(),
@@ -16,7 +17,8 @@ data class UniVoiceSubtitleCue(
     val originalText: String,
     var translatedText: String? = null,
     var isPrefetched: Boolean = false,
-    val createdAt: Long = System.currentTimeMillis()
+    val createdAt: Long = System.currentTimeMillis(),
+    val isTimed: Boolean = false
 ) {
     /**
      * 字幕の表示持続時間 (ミリ秒)
@@ -28,5 +30,9 @@ data class UniVoiceSubtitleCue(
      * テキストのサニタイズ（連続改行や空白の除去）
      */
     val cleanText: String
-        get() = originalText.replace(Regex("\\s+"), " ").trim()
+        get() = originalText.replace(WHITESPACE, " ").trim()
+
+    private companion object {
+        private val WHITESPACE = Regex("\\s+")
+    }
 }

@@ -23,7 +23,24 @@ interface TranslationEngine {
     suspend fun translate(text: String, contextHistory: List<String> = emptyList()): Result<String>
 
     /**
+     * 文脈情報（直前の対訳・動画タイトル）付きで翻訳
+     * 文脈を活用できないエンジンは原文履歴のみを渡す既定実装にフォールバックする
+     */
+    suspend fun translate(text: String, context: TranslationContext): Result<String> =
+        translate(text, context.previousPairs.map { it.first })
+
+    /**
      * リソース解放
      */
     fun release()
 }
+
+/**
+ * 翻訳時の文脈情報
+ * @param previousPairs 直前に確定した (原文, 訳文) の組。古い順
+ * @param videoTitle 動画タイトル（話題・固有名詞の手がかり）
+ */
+data class TranslationContext(
+    val previousPairs: List<Pair<String, String>> = emptyList(),
+    val videoTitle: String? = null
+)

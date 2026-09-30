@@ -3,10 +3,10 @@ package com.univoice.browser.batch
 import android.content.Context
 import android.util.Log
 import com.google.gson.Gson
-import com.google.gson.reflect.TypeToken
 import com.univoice.browser.model.BatchApproach
 import com.univoice.browser.model.ExecutionStyle
-import com.univoice.browser.translation.CloudGeminiTranslationEngine
+import com.univoice.browser.translation.GeminiClient
+import com.univoice.browser.translation.GeminiModels
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -18,7 +18,6 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.File
 import java.net.URLEncoder
-import java.util.Locale
 import java.util.concurrent.TimeUnit
 
 /**
@@ -34,13 +33,43 @@ import java.util.concurrent.TimeUnit
 class BatchDownloadPipeline(
     private val context: Context,
     private val geminiApiKey: String,
-    private val geminiModelName: String = "gemini-1.5-flash-latest",
+    private val geminiModelName: String = GeminiModels.DEFAULT,
     private val batchApproach: BatchApproach = BatchApproach.APPROACH_C_HYBRID,
-    val voiceGender: com.univoice.browser.model.VoiceGender = com.univoice.browser.model.VoiceGender.FEMALE
+    val voiceGender: com.univoice.browser.model.VoiceGender = com.univoice.browser.model.VoiceGender.FEMALE,
+    private val requestHeaders: Map<String, String>? = null
 ) {
     companion object {
         private const val TAG = "BatchDownloadPipeline"
-        private const val BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models/"
+
+        private val EXCLUDED_MEDIA_HEADERS = setOf("user-agent", "cookie", "host", "content-length", "range")
+        private const val RANGE_CHUNK_SIZE = 4L * 1024 * 1024
+        /** inline 送信する音声の上限（base64後 約18.7MB でリクエスト上限20MB未満に収める） */
+        private const val MAX_INLINE_AUDIO_BYTES = 14L * 1024 * 1024
+
+        private val RANGE_PARAM_AMP = Regex("""&(?:range=\d+-\d+|rn=\d+)(?=&|$)""")
+        private val RANGE_PARAM_FIRST = Regex("""\?(?:range=\d+-\d+|rn=\d+)(?:&|$)""")
+        private val CLEN_PARAM = Regex("""[?&]clen=(\d+)""")
+
+        /** range= / rn= クエリを除去した全編ストリームURL */
+        internal fun stripRangeParams(url: String): String =
+            url.replace(RANGE_PARAM_AMP, "").replace(RANGE_PARAM_FIRST, "?").removeSuffix("?")
+
+        /** URL の clen=（ストリーム全体のバイト数） */
+        internal fun parseClen(url: String): Long? = CLEN_PARAM.find(url)?.groupValues?.get(1)?.toLongOrNull()
+
+        /** "bytes 0-99/1234" 形式の Content-Range から全体サイズを取得 */
+        internal fun parseContentRangeTotal(contentRange: String?): Long? =
+            contentRange?.substringAfterLast('/', "")?.trim()?.toLongOrNull()
+
+        /** 音声文字起こし応答の構造化スキーマ */
+        private val ASR_SCHEMA: org.json.JSONObject = org.json.JSONObject(
+            """
+            {"type":"ARRAY","items":{"type":"OBJECT","properties":{
+              "index":{"type":"INTEGER"},"startMs":{"type":"INTEGER"},"endMs":{"type":"INTEGER"},
+              "originalText":{"type":"STRING"}},
+              "required":["index","startMs","endMs","originalText"]}}
+            """.trimIndent()
+        )
         private const val CACHE_SUBDIR = "batch_dubbing_cache"
         private const val TEMP_AUDIO_SUBDIR = "temp_audio_cache"
     }
@@ -52,6 +81,15 @@ class BatchDownloadPipeline(
         .readTimeout(60, TimeUnit.SECONDS)
         .writeTimeout(30, TimeUnit.SECONDS)
         .build()
+
+    /** Gemini 呼び出し用（長尺音声の文字起こしは数分かかるため読み取りタイムアウトを延長） */
+    private val geminiClient: GeminiClient? by lazy {
+        if (geminiApiKey.isBlank()) null
+        else GeminiClient(
+            geminiApiKey,
+            httpClient.newBuilder().readTimeout(10, TimeUnit.MINUTES).writeTimeout(5, TimeUnit.MINUTES).build()
+        )
+    }
 
     private val _jobStatus = MutableStateFlow(BatchJobStatus(videoId = "", title = "", statusMessageJapanese = "準備完了"))
     val jobStatus: StateFlow<BatchJobStatus> = _jobStatus.asStateFlow()
@@ -89,7 +127,8 @@ class BatchDownloadPipeline(
         try {
             // 出力先ディレクトリの準備
             val videoOutputDir = File(cacheDir, safeVideoId).apply { if (!exists()) mkdirs() }
-            val sourceAudioFile = File(videoOutputDir, "source_audio.m4a")
+            val audioExtension = if (audioStreamUrl?.contains("webm") == true) "webm" else "m4a"
+            val sourceAudioFile = File(videoOutputDir, "source_audio.$audioExtension")
             val videoCacheFile = File(videoOutputDir, "video_cached.mp4")
 
             _jobStatus.value = BatchJobStatus(
@@ -242,7 +281,8 @@ class BatchDownloadPipeline(
                     kotlinx.coroutines.delay(60L)
                 }
                 val audioFile = File(videoOutputDir, "dubbing_${segment.index}.mp3")
-                synthesizeSegmentAudioToFile(segment.translatedText.ifBlank { segment.originalText }, audioFile, segment.durationSec)
+                // 訳が得られなかった行は英語原文を読まずに無音にする
+                synthesizeSegmentAudioToFile(segment.translatedText, audioFile, segment.durationSec)
                 segment.generatedAudioFile = audioFile
                 Log.d(TAG, "[UniVoiceBrowser] セグメント日本語音声生成完了: ${audioFile.name} (${audioFile.length()} bytes)")
             }
@@ -335,33 +375,143 @@ class BatchDownloadPipeline(
             return
         }
 
-        try {
-            val request = Request.Builder()
-                .url(sourceUrl)
-                .addHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-                .build()
-            httpClient.newCall(request).execute().use { response ->
-                if (response.isSuccessful && response.body != null) {
-                    val contentType = response.header("Content-Type").orEmpty().lowercase()
-                    if (contentType.contains("text/html") || contentType.contains("text/plain")) {
-                        Log.w(TAG, "[UniVoiceBrowser] ${mediaType}ダウンロード中断: レスポンスがHTMLです ($contentType)")
-                        return
-                    }
-                    targetFile.outputStream().use { fos ->
-                        response.body!!.byteStream().use { input ->
-                            input.copyTo(fos)
-                        }
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            if (e is kotlinx.coroutines.CancellationException) throw e
-            Log.w(TAG, "[UniVoiceBrowser] ${mediaType}ダウンロード例外: ${e.message}")
+        val cookieStr = try {
+            android.webkit.CookieManager.getInstance().getCookie(sourceUrl)
+                ?: android.webkit.CookieManager.getInstance().getCookie("https://m.youtube.com")
+        } catch (_: Exception) { null }
+        val baseUrl = stripRangeParams(sourceUrl)
+
+        // 1段階目: rangeパラメータを除去した全編ストリーム直接取得
+        if (downloadWholeStream(baseUrl, targetFile, mediaType, cookieStr)) {
+            Log.i(TAG, "[UniVoiceBrowser] ${mediaType}ローカル保存完了 (一括取得): ${targetFile.name} (${targetFile.length()} bytes)")
+            return
         }
 
-        if (targetFile.exists()) {
-            Log.i(TAG, "[UniVoiceBrowser] ${mediaType}ローカル保存完了: ${targetFile.name} (${targetFile.length()} bytes)")
+        // 2段階目: チャンク分割レンジ取得フォールバック (MSE/DASHストリーム対応)
+        Log.i(TAG, "[UniVoiceBrowser] ${mediaType}一括取得が不完全なため、チャンク分割レンジ取得フォールバックを実行")
+        if (downloadWithChunkedRangeFallback(baseUrl, targetFile, mediaType, cookieStr)) {
+            Log.i(TAG, "[UniVoiceBrowser] ${mediaType}ローカル保存完了 (チャンク取得): ${targetFile.name} (${targetFile.length()} bytes)")
         }
+    }
+
+    /** WebView と同じ実UA（未来のChromeバージョン詐称によるブロックを避ける） */
+    private val mediaUserAgent: String by lazy {
+        try {
+            android.webkit.WebSettings.getDefaultUserAgent(context).replace("Version/4.0 ", "").replace("; wv", "")
+        } catch (_: Exception) {
+            "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Mobile Safari/537.36"
+        }
+    }
+
+    /** YouTube メディア取得用リクエスト（WebViewで捕捉したヘッダーを引き継ぐ） */
+    private fun mediaRequest(url: String, cookieStr: String?): Request {
+        val builder = Request.Builder()
+            .url(url)
+            .header("User-Agent", mediaUserAgent)
+            .header("Referer", "https://m.youtube.com/")
+            .header("Origin", "https://m.youtube.com")
+        if (!cookieStr.isNullOrBlank()) builder.header("Cookie", cookieStr)
+        requestHeaders?.forEach { (k, v) ->
+            if (k.lowercase() !in EXCLUDED_MEDIA_HEADERS) builder.header(k, v)
+        }
+        return builder.build()
+    }
+
+    /** 全編を一括取得し、Content-Length と一致した場合のみ確定（途中切断ファイルをキャッシュしない） */
+    private fun downloadWholeStream(baseUrl: String, targetFile: File, mediaType: String, cookieStr: String?): Boolean {
+        val tempFile = File(targetFile.parentFile, "${targetFile.name}.part")
+        try {
+            httpClient.newCall(mediaRequest(baseUrl, cookieStr)).execute().use { response ->
+                val body = response.body ?: return false
+                val contentType = response.header("Content-Type").orEmpty().lowercase()
+                if (!response.isSuccessful || contentType.contains("text/html") || contentType.contains("text/plain")) return false
+                val written = tempFile.outputStream().use { fos -> body.byteStream().use { it.copyTo(fos) } }
+                val expected = body.contentLength()
+                if (expected > 0 && written != expected) {
+                    Log.w(TAG, "[UniVoiceBrowser] ${mediaType}一括DLが途中で切断されました ($written/$expected bytes)")
+                    return false
+                }
+            }
+            return commitDownloadedFile(tempFile, targetFile, minBytes = 30720L)
+        } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            Log.w(TAG, "[UniVoiceBrowser] ${mediaType}一括DL例外: ${e.message}")
+            return false
+        } finally {
+            if (tempFile.exists()) tempFile.delete()
+        }
+    }
+
+    /**
+     * range クエリによる分割取得
+     * YouTube の range クエリは要求範囲のみを HTTP 200（206ではない）で返すため、
+     * 全体サイズは URL の clen= / Content-Range から求め、要求長と受信長の差で終端・range無視を判定する
+     */
+    private fun downloadWithChunkedRangeFallback(
+        baseUrl: String,
+        targetFile: File,
+        mediaType: String,
+        cookieStr: String?
+    ): Boolean {
+        val tempFile = File(targetFile.parentFile, "${targetFile.name}.part")
+        var totalSize = parseClen(baseUrl) ?: -1L
+        var start = 0L
+
+        try {
+            tempFile.outputStream().use { fos ->
+                var chunkIndex = 0
+                while (totalSize < 0 || start < totalSize) {
+                    val end = (if (totalSize > 0) minOf(start + RANGE_CHUNK_SIZE, totalSize) else start + RANGE_CHUNK_SIZE) - 1
+                    val requested = end - start + 1
+                    val sep = if (baseUrl.contains("?")) "&" else "?"
+                    val chunkUrl = "$baseUrl${sep}range=$start-$end&rn=$chunkIndex"
+
+                    val received = httpClient.newCall(mediaRequest(chunkUrl, cookieStr)).execute().use { resp ->
+                        when {
+                            resp.code == 416 -> 0L // ファイル終端到達
+                            !resp.isSuccessful -> {
+                                Log.w(TAG, "[UniVoiceBrowser] $mediaType チャンクDL失敗: code=${resp.code}")
+                                -1L
+                            }
+                            else -> {
+                                if (totalSize < 0) totalSize = parseContentRangeTotal(resp.header("Content-Range")) ?: -1L
+                                resp.body?.byteStream()?.use { it.copyTo(fos) } ?: 0L
+                            }
+                        }
+                    }
+                    if (received < 0) return false
+                    if (received == 0L) break
+
+                    start += received
+                    chunkIndex++
+                    if (totalSize > 0) {
+                        val pct = (50 + ((start.toFloat() / totalSize) * 50)).toInt().coerceIn(50, 99)
+                        _jobStatus.value = _jobStatus.value.copy(audioProgressPercent = pct)
+                    }
+                    // 要求長未満 = 終端到達 / 要求長超過 = range を無視して全編が返った
+                    if (received != requested) break
+                }
+            }
+
+            if (totalSize > 0 && tempFile.length() < totalSize) {
+                Log.w(TAG, "[UniVoiceBrowser] $mediaType チャンクDLが不完全です (${tempFile.length()}/$totalSize bytes)")
+                return false
+            }
+            return commitDownloadedFile(tempFile, targetFile, minBytes = 1024L)
+        } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            Log.w(TAG, "[UniVoiceBrowser] チャンクDL例外: ${e.message}")
+            return false
+        } finally {
+            if (tempFile.exists()) tempFile.delete()
+        }
+    }
+
+    /** 検証済みの一時ファイルを本来のファイル名で確定 */
+    private fun commitDownloadedFile(tempFile: File, targetFile: File, minBytes: Long): Boolean {
+        if (!tempFile.exists() || tempFile.length() <= minBytes || isHtmlFile(tempFile)) return false
+        if (targetFile.exists()) targetFile.delete()
+        return tempFile.renameTo(targetFile)
     }
 
     private fun isHtmlFile(file: File): Boolean {
@@ -377,42 +527,73 @@ class BatchDownloadPipeline(
     }
 
     /**
-     * 音声の文字起こし（Whisper ASR）
+     * 実音声の文字起こし（Gemini マルチモーダルAI）。翻訳は行わず Phase 3 に委ねる
      * ※ダミーのサンプル英文（baseSentences）は完全排除し、実音声データのみを対象とする
      */
     private suspend fun transcribeAudio(audioFile: File, approach: BatchApproach): List<TimedSegment> = withContext(Dispatchers.IO) {
-        Log.i(TAG, "[UniVoiceBrowser] 実音声文字起こし実行: アプローチ=${approach.titleJapanese}, file=${audioFile.name}")
-        
-        // 端末内Whisperモデルの配備チェック
-        val whisperModel = File(context.filesDir, "models/whisper_base.onnx")
-        if (!whisperModel.exists() || whisperModel.length() == 0L) {
-            throw IllegalStateException("この動画にはYouTube字幕が存在せず、ローカルWhisper音声認識モデルも未配置です。設定画面の『オンデバイスAIモデル管理』からモデルを配置するか、YouTubeの字幕(CC)が利用可能な動画でバッチ吹き替えをお試しください。")
-        }
+        Log.i(TAG, "[UniVoiceBrowser] 実音声文字起こし実行: アプローチ=${approach.titleJapanese}, file=${audioFile.name} (${audioFile.length()} bytes)")
 
-        val segments = mutableListOf<TimedSegment>()
-        
-        // 実音声ファイルの長さを解析（MediaMetadataRetriever）
-        val durationMs = try {
-            val retriever = android.media.MediaMetadataRetriever()
-            retriever.setDataSource(audioFile.absolutePath)
-            val timeStr = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)
-            retriever.release()
-            timeStr?.toLongOrNull() ?: 0L
-        } catch (_: Exception) {
-            0L
+        if (!audioFile.exists() || audioFile.length() < 1024L) {
+            throw IllegalStateException("有効な音声ファイルを取得できませんでした。")
         }
+        // 注: オンデバイスWhisper推論は未実装のため、音声文字起こしは Gemini のみで行う
+        val gemini = geminiClient
+            ?: throw IllegalStateException("この動画にはYouTube字幕が存在しません。AIによる音声文字起こしを実行するには、設定画面でGemini APIキーを設定してください。")
 
-        if (durationMs <= 0L || audioFile.length() < 30720L) {
-            throw IllegalStateException("この動画にはYouTube字幕が存在せず、音声ストリームの解析にも失敗しました。YouTube字幕(CC)が利用可能な動画でお試しください。")
-        }
-
-        // ダミー英文（baseSentences）は一切捏造せず、認識不可の場合は正直にエラー通知
+        val segments = transcribeAudioWithGemini(gemini, audioFile)
         if (segments.isEmpty()) {
-            throw IllegalStateException("音声データから発話テキストを抽出できませんでした。YouTube字幕(CC)が利用可能な動画でお試しください。")
+            throw IllegalStateException("音声データから発話テキストを抽出できませんでした（無音・BGMのみ、または認識エラー）。")
         }
+        Log.i(TAG, "[UniVoiceBrowser] Gemini Multimodal ASR文字起こし完了: ${segments.size} セグメント")
+        segments
+    }
 
-        Log.i(TAG, "[UniVoiceBrowser] Whisper ASR文字起こし完了: ${segments.size} セグメント")
-        return@withContext segments
+    private suspend fun transcribeAudioWithGemini(gemini: GeminiClient, audioFile: File): List<TimedSegment> {
+        val mimeType = if (audioFile.name.endsWith(".webm", ignoreCase = true)) "audio/webm" else "audio/mp4"
+
+        // 文字起こしのみに専念させ、翻訳は Phase 3（概要・用語集付きの2段階翻訳＋尺検証）に任せる
+        val prompt = """
+        提供された音声を正確に書き起こしてください（翻訳はしないでください）。
+        すべての発話を文単位のセグメントに分け、各セグメントについて次を出力してください。
+        - startMs, endMs: 音声開始からのミリ秒タイムスタンプ（整数）
+        - originalText: 話された言語のまま、聞こえたとおりの発話テキスト（句読点を補って文として整える）
+
+        【厳守事項】
+        1. 1セグメントは1〜2文とし、長くても約10秒に収めてください。文の途中で区切らないでください。
+        2. タイムスタンプは実際の発話開始・終了に合わせ、セグメント同士を重複させないでください。
+        3. 音楽のみ・効果音のみ・無音の区間は含めないでください。
+        4. 聞き取れない箇所を推測で補完しないでください。
+        """.trimIndent()
+
+        // inline は base64 で約1.33倍に膨らみ、リクエスト上限(約20MB)を超えるため、一定サイズ以上は File API でストリーム送信
+        var uploadedFileName: String? = null
+        try {
+            val audioPart = if (audioFile.length() > MAX_INLINE_AUDIO_BYTES) {
+                _jobStatus.value = _jobStatus.value.copy(statusMessageJapanese = "大容量音声ファイルをAIにアップロード中...")
+                val (fileUri, fileName) = gemini.uploadFile(audioFile, mimeType)
+                uploadedFileName = fileName
+                org.json.JSONObject().put("fileData", org.json.JSONObject().put("mimeType", mimeType).put("fileUri", fileUri))
+            } else {
+                val base64Data = android.util.Base64.encodeToString(audioFile.readBytes(), android.util.Base64.NO_WRAP)
+                org.json.JSONObject().put("inlineData", org.json.JSONObject().put("mimeType", mimeType).put("data", base64Data))
+            }
+
+            _jobStatus.value = _jobStatus.value.copy(statusMessageJapanese = "AIによる音声文字起こしを実行中...")
+            val rawText = gemini.generateText(
+                geminiModelName,
+                GeminiClient.GenerateRequest(
+                    userParts = listOf(audioPart, GeminiClient.textPart(prompt)),
+                    temperature = 0.2,
+                    responseSchema = ASR_SCHEMA
+                )
+            ).getOrThrow()
+
+            return BatchTranslationSupport.parseAsrSegments(rawText).also {
+                if (it.isEmpty()) Log.w(TAG, "[UniVoiceBrowser] Gemini ASR 応答から発話セグメントを抽出できませんでした: ${rawText.take(300)}")
+            }
+        } finally {
+            uploadedFileName?.let { gemini.deleteFile(it) }
+        }
     }
 
     /**
@@ -423,6 +604,11 @@ class BatchDownloadPipeline(
         segments: List<TimedSegment>,
         videoTitle: String
     ): List<TimedSegment> {
+        val gemini = geminiClient
+
+        // Stage 1: 動画全体の概要・文体・用語集を作成し、全チャンクで共有（チャンク間の訳揺れ防止）
+        val brief = gemini?.let { createVideoBrief(it, segments, videoTitle) }
+
         val chunkSize = 30
         val chunks = segments.chunked(chunkSize)
         val totalChunks = chunks.size
@@ -436,123 +622,78 @@ class BatchDownloadPipeline(
                 statusMessageJapanese = "AIによる尺合わせ一括翻訳を実行中 (${chunkIdx + 1}/$totalChunks チャンク)..."
             )
 
-            var chunkSuccess = false
+            // Stage 2: 概要・用語集・直前チャンクの対訳を添えてチャンク翻訳
+            if (gemini != null) {
+                val previousPairs = chunks.getOrNull(chunkIdx - 1).orEmpty()
+                    .filter { it.translatedText.isNotBlank() }
+                    .takeLast(BatchTranslationSupport.PREVIOUS_CONTEXT_LINES)
+                val followingSources = chunks.getOrNull(chunkIdx + 1).orEmpty()
+                    .take(BatchTranslationSupport.LOOKAHEAD_LINES)
+                    .map { it.originalText }
 
-            if (geminiApiKey.isNotBlank()) {
-                val promptBuilder = StringBuilder()
-                promptBuilder.append("あなたは動画吹き替え専門のプロ翻訳者です。\n")
-                promptBuilder.append("動画タイトル: 「$videoTitle」\n")
-                promptBuilder.append("以下の全編英語字幕を、日本語の吹き替え用音声に翻訳してください。\n\n")
-                promptBuilder.append("【絶対厳守のルール】\n")
-                promptBuilder.append("1. 各行の『目標文字数』を超えないよう、自然な話し言葉で要約・意訳してください。\n")
-                promptBuilder.append("2. 尺（秒数）内にピタリと読み切れる長さに抑えることが最優先です。\n")
-                promptBuilder.append("3. 出力は以下のJSON配列フォーマットのみを出力してください。\n")
-                promptBuilder.append("[{\"index\": 0, \"japanese\": \"翻訳文\"}, ...]\n\n")
-                promptBuilder.append("【対象セグメント一覧】\n")
+                val firstPass = requestChunkTranslation(
+                    gemini,
+                    BatchTranslationSupport.buildChunkPrompt(videoTitle, brief, previousPairs, chunkSegments, followingSources)
+                )
+                val translations = firstPass.toMutableMap()
 
-                chunkSegments.forEach { seg ->
-                    promptBuilder.append("・[ID:${seg.index}] 制限時間: ${String.format(Locale.US, "%.1f", seg.durationSec)}秒 (推奨最大文字数: ${seg.maxRecommendedJapaneseChars}字) -> \"${seg.originalText}\"\n")
+                // 欠落・非日本語・尺超過の行だけを再依頼（F）
+                val problems = BatchTranslationSupport.findProblems(chunkSegments, translations)
+                if (firstPass.isNotEmpty() && problems.isNotEmpty()) {
+                    Log.i(TAG, "[UniVoiceBrowser] チャンク ${chunkIdx + 1}: ${problems.size} 行を再翻訳依頼 (${problems.joinToString { "#${it.segment.index}" }})")
+                    val retryPass = requestChunkTranslation(
+                        gemini,
+                        BatchTranslationSupport.buildChunkPrompt(
+                            videoTitle, brief, previousPairs,
+                            targets = problems.map { it.segment },
+                            followingSources = followingSources,
+                            retryReasons = problems.associate { it.segment.index to it.reason }
+                        )
+                    )
+                    retryPass.forEach { (idx, ja) ->
+                        if (BatchTranslationSupport.isSubstantiallyJapanese(ja)) translations[idx] = ja
+                    }
                 }
 
-                val requestBodyMap = mapOf(
-                    "contents" to listOf(
-                        mapOf("parts" to listOf(mapOf("text" to promptBuilder.toString())))
-                    ),
-                    "generationConfig" to mapOf(
-                        "temperature" to 0.2,
-                        "responseMimeType" to "application/json"
-                    )
-                )
-
-                val jsonBody = gson.toJson(requestBodyMap)
-
-                val candidateModels = listOf(
-                    geminiModelName.trim(),
-                    "gemini-1.5-flash-latest",
-                    "gemini-1.5-flash",
-                    "gemini-2.0-flash",
-                    "gemini-2.0-flash-exp"
-                ).distinct().filter { it.isNotBlank() }
-
-                for (model in candidateModels) {
-                    val targetUrl = "${BASE_URL}$model:generateContent"
-                    val request = Request.Builder()
-                        .url(targetUrl)
-                        .addHeader("x-goog-api-key", geminiApiKey)
-                        .addHeader("Content-Type", "application/json")
-                        .post(jsonBody.toRequestBody("application/json; charset=utf-8".toMediaType()))
-                        .build()
-
-                    try {
-                        httpClient.newCall(request).execute().use { response ->
-                            if (!response.isSuccessful) {
-                                val err = response.body?.string() ?: ""
-                                Log.w(TAG, "[UniVoiceBrowser] チャンク ${chunkIdx + 1} モデル $model エラー (HTTP ${response.code}): $err")
-                                return@use
-                            }
-                            val responseString = response.body?.string() ?: return@use
-                            val root = gson.fromJson(responseString, Map::class.java)
-                            val candidates = root["candidates"] as? List<*>
-                            val firstCandidate = candidates?.firstOrNull() as? Map<*, *>
-                            val content = firstCandidate?.get("content") as? Map<*, *>
-                            val parts = content?.get("parts") as? List<*>
-                            val firstPart = parts?.firstOrNull() as? Map<*, *>
-                            val jsonText = firstPart?.get("text") as? String ?: ""
-
-                            if (jsonText.isNotBlank()) {
-                                try {
-                                    val type = object : TypeToken<List<Map<String, Any>>>() {}.type
-                                    val parsedList: List<Map<String, Any>> = gson.fromJson(jsonText, type)
-
-                                    val translationMap = mutableMapOf<Int, String>()
-                                    parsedList.forEach { item ->
-                                        val idx = (item["index"] as? Number)?.toInt() ?: -1
-                                        val jp = item["japanese"] as? String ?: ""
-                                        if (idx >= 0) translationMap[idx] = jp
-                                    }
-
-                                    chunkSegments.forEach { seg ->
-                                        seg.translatedText = translationMap[seg.index] ?: seg.originalText
-                                    }
-                                    chunkSuccess = true
-                                    Log.i(TAG, "[UniVoiceBrowser] Geminiチャンク翻訳成功: ${chunkIdx + 1}/$totalChunks (モデル: $model)")
-                                } catch (e: Exception) {
-                                    Log.w(TAG, "[UniVoiceBrowser] JSONパース失敗 (チャンク ${chunkIdx + 1}): ${e.message}")
-                                }
-                            }
-                        }
-                        if (chunkSuccess) break
-                    } catch (e: Exception) {
-                        if (e is kotlinx.coroutines.CancellationException) throw e
-                        Log.w(TAG, "[UniVoiceBrowser] 通信例外 (チャンク ${chunkIdx + 1}, モデル $model): ${e.message}")
+                chunkSegments.forEach { seg ->
+                    val ja = translations[seg.index]
+                    if (!ja.isNullOrBlank() && BatchTranslationSupport.isSubstantiallyJapanese(ja)) {
+                        seg.translatedText = ja
                     }
+                }
+                if (firstPass.isNotEmpty()) {
+                    Log.i(TAG, "[UniVoiceBrowser] Geminiチャンク翻訳成功: ${chunkIdx + 1}/$totalChunks")
                 }
             }
 
-            // Gemini API 未設定または失敗時は無料Web翻訳エンジンで安全フォールバック
-            if (!chunkSuccess) {
-                Log.w(TAG, "[UniVoiceBrowser] チャンク ${chunkIdx + 1} を無料Web翻訳エンジンで翻訳します")
-                chunkSegments.forEachIndexed { sIdx, seg ->
-                    if (sIdx > 0) {
-                        kotlinx.coroutines.delay(60L) // 429レートリミット防止
-                    }
-                    try {
-                        val res = freeWebTranslation.translate(seg.originalText, emptyList())
-                        val translated = res.getOrNull()
-                        if (!translated.isNullOrBlank()) {
-                            val maxChars = seg.maxRecommendedJapaneseChars
-                            seg.translatedText = if (translated.length > maxChars * 1.5) {
-                                translated.take((maxChars * 1.3).toInt()) + "…"
-                            } else {
-                                translated
-                            }
+            // Gemini 未設定・失敗・欠落行は無料Web翻訳エンジンで行単位にフォールバック
+            val untranslated = chunkSegments.filter {
+                it.translatedText.isBlank() || !BatchTranslationSupport.isSubstantiallyJapanese(it.translatedText)
+            }
+            if (untranslated.isNotEmpty()) {
+                Log.w(TAG, "[UniVoiceBrowser] チャンク ${chunkIdx + 1} の ${untranslated.size} 行を無料Web翻訳エンジンで翻訳します")
+            }
+            untranslated.forEachIndexed { sIdx, seg ->
+                if (sIdx > 0) {
+                    kotlinx.coroutines.delay(60L) // 429レートリミット防止
+                }
+                try {
+                    val translated = freeWebTranslation.translate(seg.originalText, emptyList()).getOrNull()
+                    if (!translated.isNullOrBlank() && BatchTranslationSupport.isSubstantiallyJapanese(translated)) {
+                        val maxChars = seg.maxRecommendedJapaneseChars
+                        seg.translatedText = if (translated.length > maxChars * 1.5) {
+                            translated.take((maxChars * 1.3).toInt()) + "…"
                         } else {
-                            seg.translatedText = seg.originalText
+                            translated
                         }
-                    } catch (e: Exception) {
-                        if (e is kotlinx.coroutines.CancellationException) throw e
-                        seg.translatedText = seg.originalText
+                    } else {
+                        // 英語原文をTTSに読ませると吹き替え品質を損なうため、訳が得られない行は無音にする
+                        seg.translatedText = ""
+                        Log.w(TAG, "[UniVoiceBrowser] 翻訳を取得できなかったため無音にします: #${seg.index} ${seg.originalText}")
                     }
+                } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
+                    seg.translatedText = ""
                 }
             }
 
@@ -562,6 +703,52 @@ class BatchDownloadPipeline(
         }
 
         return segments
+    }
+
+    /**
+     * 動画全体の概要・文体・用語集を作成（失敗時は null で概要なし翻訳に切り替え）
+     */
+    private suspend fun createVideoBrief(
+        gemini: GeminiClient,
+        segments: List<TimedSegment>,
+        videoTitle: String
+    ): BatchTranslationSupport.VideoBrief? {
+        _jobStatus.value = _jobStatus.value.copy(statusMessageJapanese = "動画全体の要約・用語集を作成中...")
+        val result = gemini.generateText(
+            geminiModelName,
+            GeminiClient.GenerateRequest(
+                userParts = listOf(GeminiClient.textPart(BatchTranslationSupport.buildBriefPrompt(videoTitle, segments))),
+                temperature = 0.2,
+                responseSchema = BatchTranslationSupport.BRIEF_SCHEMA
+            )
+        )
+        val brief = result.getOrNull()?.let { BatchTranslationSupport.parseBrief(it) }
+        if (brief != null) {
+            Log.i(TAG, "[UniVoiceBrowser] 動画概要作成完了: 文体=${brief.style}, 用語集=${brief.glossary.size}件")
+        } else {
+            Log.w(TAG, "[UniVoiceBrowser] 動画概要の作成に失敗したため、概要なしで翻訳を続行します: ${result.exceptionOrNull()?.message}")
+        }
+        return brief
+    }
+
+    /** チャンク翻訳リクエスト（index → 訳文）。失敗時は空マップ */
+    private suspend fun requestChunkTranslation(gemini: GeminiClient, prompt: String): Map<Int, String> {
+        val result = gemini.generateText(
+            geminiModelName,
+            GeminiClient.GenerateRequest(
+                userParts = listOf(GeminiClient.textPart(prompt)),
+                systemInstruction = BatchTranslationSupport.TRANSLATION_SYSTEM_INSTRUCTION,
+                temperature = 0.2,
+                responseSchema = BatchTranslationSupport.TRANSLATION_SCHEMA
+            )
+        )
+        return result.fold(
+            onSuccess = { BatchTranslationSupport.parseTranslations(it) },
+            onFailure = {
+                Log.w(TAG, "[UniVoiceBrowser] Geminiチャンク翻訳失敗: ${it.message}")
+                emptyMap()
+            }
+        )
     }
 
     /**

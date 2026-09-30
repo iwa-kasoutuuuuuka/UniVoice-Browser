@@ -454,7 +454,7 @@
                                 android:layout_height="wrap_content"
                                 android:layout_marginStart="32dp"
                                 android:layout_marginBottom="10dp"
-                                android:text="音声をGemini 1.5 ProマルチモーダルAPI等に直接渡して高精度文字起こし＆翻訳、高品質クラウドTTSで吹き替えます。"
+                                android:text="音声をGeminiマルチモーダルAPIに直接渡して高精度文字起こし＆翻訳、高品質クラウドTTSで吹き替えます。"
                                 android:textColor="@color/on_surface_variant"
                                 android:textSize="12sp" />
 
@@ -673,7 +673,7 @@
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:layout_marginBottom="12dp"
-                            android:text="※未入力時は高精度Web無料翻訳が自動適用されます。Gemini APIキーを入力すると、Gemini 1.5 Flashによる極めて自然な文脈翻訳にアップグレードされます。"
+                            android:text="※未入力時は高精度Web無料翻訳が自動適用されます。Gemini APIキーを入力すると、Gemini Flashによる文脈を踏まえた自然な翻訳にアップグレードされます。"
                             android:textColor="@color/on_surface_variant"
                             android:textSize="12sp" />
 

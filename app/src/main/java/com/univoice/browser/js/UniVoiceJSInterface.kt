@@ -20,6 +20,9 @@ class UniVoiceJSInterface(
     private val onTimedTextCapturedCallback: (url: String?, body: String?) -> Unit = { _, _ -> }
 ) {
 
+    /** 動画の再生速度変更通知（メインスレッドで呼び出し） */
+    var onPlaybackRateChangedCallback: (Float) -> Unit = {}
+
     private val mainHandler = Handler(Looper.getMainLooper())
 
     companion object {
@@ -56,6 +59,31 @@ class UniVoiceJSInterface(
      */
     @JavascriptInterface
     fun onSubtitleReceived(startTimeMs: Long, endTimeMs: Long, text: String?) {
+        deliverSubtitle(startTimeMs, endTimeMs, text, isTimed = false)
+    }
+
+    /**
+     * 字幕トラック (timedtext) から先読みした、動画上の実タイムスタンプ付き字幕を受信
+     * 再生位置が startTimeMs に達した時点で読み上げる
+     */
+    @JavascriptInterface
+    fun onTimedSubtitleReceived(startTimeMs: Long, endTimeMs: Long, text: String?) {
+        deliverSubtitle(startTimeMs, endTimeMs, text, isTimed = true)
+    }
+
+    /**
+     * 動画の再生速度変更の通知 (0.25〜2.0倍など)
+     */
+    @JavascriptInterface
+    fun onPlaybackRateChanged(rate: Double) {
+        if (!isOriginAuthorized()) return
+        if (rate.isNaN() || rate <= 0.0 || rate > 16.0) return
+        mainHandler.post {
+            onPlaybackRateChangedCallback(rate.toFloat())
+        }
+    }
+
+    private fun deliverSubtitle(startTimeMs: Long, endTimeMs: Long, text: String?, isTimed: Boolean) {
         if (!isOriginAuthorized()) return
         if (text.isNullOrBlank()) return
 
@@ -66,10 +94,11 @@ class UniVoiceJSInterface(
         val cue = UniVoiceSubtitleCue(
             startTimeMs = startTimeMs,
             endTimeMs = if (endTimeMs > startTimeMs) endTimeMs else startTimeMs + 3000L,
-            originalText = sanitized
+            originalText = sanitized,
+            isTimed = isTimed
         )
 
-        Log.d(TAG, "[UniVoiceBrowser] 字幕受信: [${startTimeMs}ms - ${endTimeMs}ms] $sanitized")
+        Log.d(TAG, "[UniVoiceBrowser] 字幕受信${if (isTimed) "(トラック)" else ""}: [${startTimeMs}ms - ${endTimeMs}ms] $sanitized")
 
         mainHandler.post {
             onSubtitleReceivedCallback(cue)

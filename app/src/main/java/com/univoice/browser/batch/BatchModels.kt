@@ -17,9 +17,13 @@ data class TimedSegment(
     val durationSec: Float
         get() = ((endMs - startMs).coerceAtLeast(500L)) / 1000.0f
 
-    /** 日本語の自然な発話における推奨最大文字数 (1秒あたり約6〜7文字) */
+    /** 標準速度で尺内に収まるモーラ数 */
+    val maxMorae: Float
+        get() = com.univoice.browser.pipeline.JapaneseSpeechTiming.maxMoraeFor(durationSec)
+
+    /** 翻訳プロンプトで指示する最大文字数の目安（モーラ数から漢字かな交じり文の平均で換算） */
     val maxRecommendedJapaneseChars: Int
-        get() = (durationSec * 6.5f).toInt().coerceAtLeast(3)
+        get() = com.univoice.browser.pipeline.JapaneseSpeechTiming.maxCharsFor(durationSec)
 }
 
 /**

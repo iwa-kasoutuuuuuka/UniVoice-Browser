@@ -10,7 +10,7 @@ data class UniVoiceSettings(
     val manualTranslationEngine: TranslationEngineType = TranslationEngineType.GEMINI_CLOUD,
     val manualTtsEngine: TtsEngineType = TtsEngineType.LOCAL_VOICEVOX_ONNX,
     val geminiApiKey: String = "",
-    val geminiModelName: String = "gemini-1.5-flash-latest",
+    val geminiModelName: String = com.univoice.browser.translation.GeminiModels.DEFAULT,
     val customEndpointUrl: String = "",
     val hardwareAcceleration: Boolean = true,
     val audioSuppressionEnabled: Boolean = true,

@@ -85,4 +85,7 @@ dependencies {
 
     // ONNX Runtime for Local AI Voice Inference (VOICEVOX / FastSpeech) with NNAPI
     implementation(libs.onnxruntime.android)
+
+    testImplementation(libs.junit)
+    testImplementation("org.json:json:20231013")
 }
