@@ -67,6 +67,10 @@ class SpeechQueue(private val now: () -> Long = System::currentTimeMillis) {
         items.add(prepared)
     }
 
+    /** 指定時刻より後に始まる、待機中の字幕トラック行の最も早い開始時刻（読み上げ時間の上限計算用） */
+    fun nextTimedStartAfter(startMs: Long): Long? =
+        items.filter { it.cue.isTimed && it.cue.startTimeMs > startMs }.minOfOrNull { it.cue.startTimeMs }
+
     fun clear(): List<PreparedCue> {
         val removed = items.toList()
         items.clear()

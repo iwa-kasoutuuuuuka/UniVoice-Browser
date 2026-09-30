@@ -35,6 +35,11 @@ class AndroidSystemTtsEngine(
     private var currentDeferred: CompletableDeferred<Unit>? = null
     private val speakMutex = kotlinx.coroutines.sync.Mutex()
 
+    /** 実音声長の計測用（発話ID・本文・速度・開始時刻）。途中停止した発話は計測しない */
+    private data class UtteranceMeasure(val id: String, val text: String, val speed: Float, var startedAtMs: Long = 0L)
+    @Volatile
+    private var measuring: UtteranceMeasure? = null
+
     override suspend fun initialize(): Boolean {
         if (isInitialized && tts != null) {
             applyVoiceGender()
@@ -63,8 +68,16 @@ class AndroidSystemTtsEngine(
                             .build()
                         tts?.setAudioAttributes(audioAttributes)
                         tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-                            override fun onStart(utteranceId: String?) {}
+                            override fun onStart(utteranceId: String?) {
+                                measuring?.takeIf { it.id == utteranceId }?.startedAtMs = android.os.SystemClock.elapsedRealtime()
+                            }
                             override fun onDone(utteranceId: String?) {
+                                // 最後まで再生された発話のみ、1.0倍速換算の実音声長として報告
+                                measuring?.takeIf { it.id == utteranceId && it.startedAtMs > 0L }?.let { m ->
+                                    val playedMs = android.os.SystemClock.elapsedRealtime() - m.startedAtMs
+                                    com.univoice.browser.pipeline.SpeechDurationCalibration.report(engineType.id, m.text, (playedMs * m.speed).toLong())
+                                }
+                                measuring = null
                                 currentDeferred?.complete(Unit)
                             }
                             @Deprecated("Deprecated in Java")
@@ -161,6 +174,7 @@ class AndroidSystemTtsEngine(
                     val playDeferred = CompletableDeferred<Unit>()
                     currentDeferred = playDeferred
 
+                    measuring = UtteranceMeasure(utteranceId, text, appliedSpeed)
                     tts?.speak(text, TextToSpeech.QUEUE_FLUSH, params, utteranceId)
 
                     val timeoutMs = ((text.length * 220L / appliedSpeed).toLong() + 1500L).coerceIn(800L, 9000L)
@@ -185,6 +199,7 @@ class AndroidSystemTtsEngine(
 
     override fun stop() {
         try {
+            measuring = null // 途中停止した発話は実音声長として扱わない
             currentDeferred?.complete(Unit)
             currentDeferred = null
             tts?.stop()

@@ -38,7 +38,7 @@ class BatchTranslationSupportTest {
     @Test
     fun findProblemsDetectsMissingNonJapaneseAndOverlong() {
         val targets = listOf(seg(0, 2000), seg(1, 2000), seg(2, 2000), seg(3, 2000))
-        // 2秒 → 14拍（許容 16.8拍）、プロンプト上の目安は10字
+        // 2秒 → 約9.7拍（許容 約11.7拍）、プロンプト上の目安は7字
         val translations = mapOf(
             0 to "こんにちは。",
             2 to "Hello there",
@@ -46,7 +46,7 @@ class BatchTranslationSupportTest {
         )
         val problems = BatchTranslationSupport.findProblems(targets, translations)
         assertEquals(listOf(1, 2, 3), problems.map { it.segment.index })
-        assertTrue(problems[2].reason.contains("10字以内"))
+        assertTrue(problems[2].reason.contains("7字以内"))
     }
 
     @Test

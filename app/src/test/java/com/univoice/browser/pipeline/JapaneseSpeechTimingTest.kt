@@ -34,9 +34,11 @@ class JapaneseSpeechTimingTest {
 
     @Test
     fun charLimitIsDerivedFromMoraBudget() {
-        // 2秒 × 7拍 = 14拍 → 14 / 1.3 ≒ 10字
-        assertEquals(14f, JapaneseSpeechTiming.maxMoraeFor(2f), 0.001f)
-        assertEquals(10, JapaneseSpeechTiming.maxCharsFor(2f))
+        // (2秒 - 余白0.35秒) × 5.9拍 ≒ 9.7拍 → 9.7 / 1.3 ≒ 7字
+        assertEquals(9.735f, JapaneseSpeechTiming.maxMoraeFor(2f), 0.001f)
+        assertEquals(7, JapaneseSpeechTiming.maxCharsFor(2f))
+        // 余白より短い尺は 0拍（文字数は下限3字）
+        assertEquals(0f, JapaneseSpeechTiming.maxMoraeFor(0.2f), 0.001f)
         assertEquals(3, JapaneseSpeechTiming.maxCharsFor(0.1f))
     }
 

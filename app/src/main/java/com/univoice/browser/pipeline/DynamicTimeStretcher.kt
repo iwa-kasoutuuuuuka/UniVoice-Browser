@@ -10,9 +10,6 @@ object DynamicTimeStretcher {
 
     private const val TAG = "DynamicTimeStretcher"
 
-    // 日本語の標準的な発話速度: 1秒あたり約7モーラ (文字)
-    private const val MORAE_PER_SECOND_STANDARD = JapaneseSpeechTiming.MORAE_PER_SECOND
-
     // 許容される速度調整の最小値と最大値
     private const val MIN_SPEED = 0.5f
     private const val MAX_SPEED = 2.5f
@@ -25,43 +22,38 @@ object DynamicTimeStretcher {
      * @param translatedJapanese 翻訳後の日本語テキスト
      * @param availableDurationMs 字幕の表示可能時間（次の字幕開始までのミリ秒、または現在の字幕持続時間）
      * @param baseSpeed ユーザーが設定画面で指定した基準発話速度 (0.5〜2.5倍)
+     * @param estimatedRawDurationMs 1.0倍速での推定音声長（使用中エンジンの実測で補正した値）。
+     *        null の場合は既定モデル（余白 + モーラ数/話速）で推定
      * @return 最適化された発話速度倍率
      */
     fun calculateOptimalSpeed(
         translatedJapanese: String,
         availableDurationMs: Long,
-        baseSpeed: Float = 1.0f
+        baseSpeed: Float = 1.0f,
+        estimatedRawDurationMs: Long? = null
     ): Float {
         val safeBaseSpeed = baseSpeed.coerceIn(MIN_SPEED, MAX_SPEED)
-        if (translatedJapanese.isBlank() || availableDurationMs <= 0) {
-            return safeBaseSpeed
-        }
+        if (translatedJapanese.isBlank() || availableDurationMs <= 0) return safeBaseSpeed
+        if (JapaneseSpeechTiming.estimateMorae(translatedJapanese) <= 0f) return safeBaseSpeed
 
-        // 漢字・拗音・長音を考慮したモーラ数で発話時間を推定（文字数だと漢字の多い文で過小評価になる）
-        val morae = JapaneseSpeechTiming.estimateMorae(translatedJapanese)
-        if (morae <= 0f) return safeBaseSpeed
-
-        // ユーザー指定の基準速度で発話した場合の推定所要秒数
-        val estimatedDurationSec = morae / (MORAE_PER_SECOND_STANDARD * safeBaseSpeed)
-        val availableDurationSec = (availableDurationMs / 1000.0f).coerceAtLeast(0.5f)
-
-        // 字幕の表示時間内に発話が収まらない場合のみ、次の字幕に追従できるよう加速補正
-        // 余裕がある場合はユーザー指定の基準速度（safeBaseSpeed）をそのまま100%維持
-        val speedNeeded = if (estimatedDurationSec > availableDurationSec) {
-            morae / (MORAE_PER_SECOND_STANDARD * availableDurationSec)
-        } else {
-            safeBaseSpeed
-        }
-
-        // ユーザーが設定した発話速度を下回らないよう保証（ユーザー設定を最優先）
-        val targetSpeed = maxOf(safeBaseSpeed, speedNeeded).coerceIn(MIN_SPEED, MAX_SPEED)
+        val rawMs = estimatedRawDurationMs ?: (JapaneseSpeechTiming.estimateDurationSec(translatedJapanese) * 1000).toLong()
+        val targetSpeed = speedFor(rawMs, availableDurationMs, safeBaseSpeed)
 
         Log.d(
             TAG,
-            "[UniVoiceBrowser] 発話速度計算: 設定基準=${safeBaseSpeed}倍, 推定モーラ数=${String.format("%.1f", morae)}, 許容時間=${availableDurationSec}s, 所要時間=${String.format("%.2f", estimatedDurationSec)}s -> 適用速度=${String.format("%.2f", targetSpeed)}倍"
+            "[UniVoiceBrowser] 発話速度計算: 設定基準=${safeBaseSpeed}倍, 推定音声長=${rawMs}ms(1.0倍), 許容時間=${availableDurationMs}ms -> 適用速度=${String.format("%.2f", targetSpeed)}倍"
         )
-
         return targetSpeed
+    }
+
+    /**
+     * 1.0倍速の音声長 rawMs を availableMs 内に収める速度（基準速度を下回らない）
+     * 再生速度を上げると余白も含めた音声全体が 1/速度 に縮む
+     */
+    internal fun speedFor(rawMs: Long, availableMs: Long, baseSpeed: Float): Float {
+        val availableSec = (availableMs / 1000f).coerceAtLeast(0.5f)
+        val needed = (rawMs / 1000f) / availableSec
+        return maxOf(baseSpeed, needed).coerceIn(MIN_SPEED, MAX_SPEED)
     }
 
     /**

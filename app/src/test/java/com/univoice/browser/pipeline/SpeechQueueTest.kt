@@ -57,6 +57,15 @@ class SpeechQueueTest {
     }
 
     @Test
+    fun nextTimedStartIsReportedForSpeechBudget() {
+        queue.add(timed(10_000))
+        queue.add(timed(12_000))
+        queue.add(untimed(11_000))
+        assertEquals(12_000L, queue.nextTimedStartAfter(10_000L))
+        assertEquals(null, queue.nextTimedStartAfter(12_000L))
+    }
+
+    @Test
     fun trackLineStartedLongAgoIsSkippedNotRushed() {
         // 10〜13秒の行を位置12.8秒で読むと大きく遅れて早口になるため破棄
         queue.add(timed(10_000))

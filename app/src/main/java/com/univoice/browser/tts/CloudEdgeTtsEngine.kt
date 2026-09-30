@@ -145,6 +145,8 @@ class CloudEdgeTtsEngine(
                     }
                     mp.prepare()
                     durationMs = mp.duration
+                    // 1.0倍速の実音声長を報告し、発話速度計算の音声長モデルを補正
+                    com.univoice.browser.pipeline.SpeechDurationCalibration.report(engineType.id, text, durationMs.toLong())
                     mp.start()
                     try {
                         val params = try { mp.playbackParams } catch (_: Exception) { android.media.PlaybackParams() }

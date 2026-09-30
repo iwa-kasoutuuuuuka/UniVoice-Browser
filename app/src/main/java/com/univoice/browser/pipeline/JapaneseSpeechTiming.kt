@@ -8,8 +8,15 @@ package com.univoice.browser.pipeline
  */
 object JapaneseSpeechTiming {
 
-    /** 標準速度 (1.0倍) の日本語TTSの発話速度 */
-    const val MORAE_PER_SECOND = 7.0f
+    /**
+     * 標準速度 (1.0倍) の日本語TTSの発話速度
+     * Google TTS の実測回帰（17発話）: 169ms/モーラ ≒ 5.9モーラ/秒
+     * ※ 旧値 7.0 と余白なしの見積もりは、実測より平均36%（約0.8秒）短かった
+     */
+    const val MORAE_PER_SECOND = 5.9f
+
+    /** 発話ごとに付く固定の余白（前後の無音・立ち上がり）。同実測で約344ms */
+    const val UTTERANCE_OVERHEAD_MS = 350L
 
     /** 漢字1字あたりの平均モーラ数（音読み2拍・訓読み1〜3拍の平均的な値） */
     private const val MORAE_PER_KANJI = 2.0f
@@ -45,11 +52,13 @@ object JapaneseSpeechTiming {
         return morae
     }
 
+    /** 既定モデル（余白 + モーラ数/話速）での再生時間。speed 倍速で再生すると全体が 1/speed に縮む */
     fun estimateDurationSec(text: String, speed: Float = 1.0f): Float =
-        estimateMorae(text) / (MORAE_PER_SECOND * speed.coerceAtLeast(0.1f))
+        (UTTERANCE_OVERHEAD_MS / 1000f + estimateMorae(text) / MORAE_PER_SECOND) / speed.coerceAtLeast(0.1f)
 
-    /** 指定秒数に標準速度で収まるモーラ数 */
-    fun maxMoraeFor(durationSec: Float): Float = durationSec * MORAE_PER_SECOND
+    /** 指定秒数に標準速度で収まるモーラ数（発話ごとの余白を差し引く） */
+    fun maxMoraeFor(durationSec: Float): Float =
+        ((durationSec - UTTERANCE_OVERHEAD_MS / 1000f) * MORAE_PER_SECOND).coerceAtLeast(0f)
 
     /** 指定秒数に収まる目安の文字数（翻訳プロンプト用） */
     fun maxCharsFor(durationSec: Float): Int =

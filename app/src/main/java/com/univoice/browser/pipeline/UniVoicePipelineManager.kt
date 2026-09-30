@@ -524,10 +524,13 @@ class UniVoicePipelineManager(
             val tts = ttsEngine ?: cloudEdgeTts
 
             // 字幕表示時間に合わせて発話速度をリアルタイムに自動微調整
+            // 音声長は使用中エンジンの実測で補正したモデルで推定（話速・前後の無音はエンジン・声ごとに異なる）
+            val estimatedRawMs = SpeechDurationCalibration.estimateRawMs(tts.engineType.id, translated)
             val dynamicSpeed = DynamicTimeStretcher.calculateOptimalSpeed(
                 translatedJapanese = translated,
                 availableDurationMs = availableSpeechMs(cue),
-                baseSpeed = settings.speechSpeed
+                baseSpeed = settings.speechSpeed,
+                estimatedRawDurationMs = estimatedRawMs
             )
             if (cue.isTimed) timedCueRegistry.markSpoken(cue.startTimeMs, cue.endTimeMs)
             spoken = true
@@ -536,7 +539,7 @@ class UniVoicePipelineManager(
             } else {
                 System.currentTimeMillis() - cue.createdAt
             }
-            Log.d(TAG, "[UniVoiceBrowser] 読み上げ開始 (${if (cue.isTimed) "トラック" else "画面字幕"}, 遅れ=${lagMs}ms, 速度=${"%.2f".format(dynamicSpeed)}倍, 待ち=${synchronized(speechQueue) { speechQueue.size }}件): $translated")
+            Log.d(TAG, "[UniVoiceBrowser] 読み上げ開始 (${if (cue.isTimed) "トラック" else "画面字幕"}, 遅れ=${lagMs}ms, 推定音声長=${estimatedRawMs}ms, 速度=${"%.2f".format(dynamicSpeed)}倍, 待ち=${synchronized(speechQueue) { speechQueue.size }}件): $translated")
 
             _currentStatus.value = PipelineStatus.PLAYING
             val ttsResult = tts.synthesizeAndPlay(
@@ -576,7 +579,10 @@ class UniVoicePipelineManager(
      */
     private fun availableSpeechMs(cue: UniVoiceSubtitleCue): Long {
         if (cue.isTimed && playbackClock.hasPosition) {
-            val remainingVideoMs = (cue.endTimeMs - playbackClock.positionMs()).coerceIn(500L, cue.durationMs)
+            // 字幕トラックの行は時間帯が次の行と重なることがあるため、次の行の読み上げ開始までに読み終える
+            val nextStart = synchronized(speechQueue) { speechQueue.nextTimedStartAfter(cue.startTimeMs) }
+            val slotEnd = if (nextStart != null) minOf(cue.endTimeMs, nextStart - SpeechQueue.TIMED_LEAD_MS) else cue.endTimeMs
+            val remainingVideoMs = (slotEnd - playbackClock.positionMs()).coerceIn(500L, cue.durationMs)
             return (remainingVideoMs / playbackClock.playbackRate).toLong()
         }
         val lagMs = (System.currentTimeMillis() - cue.createdAt).coerceAtLeast(0L)
